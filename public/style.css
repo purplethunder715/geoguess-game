@@ -1,7 +1,12 @@
 /* Reset + base */
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-html, body {
+html,
+body {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #0e1116;
@@ -9,7 +14,9 @@ html, body {
   overflow: hidden;
 }
 
-button { font-family: inherit; }
+button {
+  font-family: inherit;
+}
 
 /* Screen container shared by start / game / result / end */
 .screen {
@@ -20,7 +27,9 @@ button { font-family: inherit; }
   justify-content: center;
 }
 
-.hidden { display: none !important; }
+.hidden {
+  display: none !important;
+}
 
 /* Card used by start, result, and end screens */
 .card {
@@ -32,19 +41,38 @@ button { font-family: inherit; }
   text-align: center;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
 }
-.card h1 { font-size: 36px; margin-bottom: 12px; letter-spacing: -0.5px; }
-.card h2 { font-size: 28px; margin: 12px 0; color: #4ade80; }
-.card p  { line-height: 1.5; margin-bottom: 8px; }
-.card .muted { color: #94a3b8; font-size: 14px; }
+.card h1 {
+  font-size: 36px;
+  margin-bottom: 12px;
+  letter-spacing: -0.5px;
+}
+.card h2 {
+  font-size: 28px;
+  margin: 12px 0;
+  color: #4ade80;
+}
+.card p {
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.card .muted {
+  color: #94a3b8;
+  font-size: 14px;
+}
 
 .toggle {
-  display: flex; align-items: center; gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 16px 0;
   cursor: pointer;
-  font-size: 14px; color: #94a3b8;
+  font-size: 14px;
+  color: #94a3b8;
   justify-content: center;
 }
-.toggle input { cursor: pointer; }
+.toggle input {
+  cursor: pointer;
+}
 
 /* API key field on the start screen */
 #api-key-section {
@@ -58,20 +86,31 @@ button { font-family: inherit; }
   color: #94a3b8;
   margin-bottom: 6px;
 }
-.field-label a { color: #4ade80; text-decoration: none; }
-.field-label a:hover { text-decoration: underline; }
+.field-label a {
+  color: #4ade80;
+  text-decoration: none;
+}
+.field-label a:hover {
+  text-decoration: underline;
+}
 #api-key-input {
   width: 100%;
   padding: 10px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.3);
   color: #e6e8ea;
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 13px;
 }
-#api-key-input:focus { outline: none; border-color: #4ade80; }
-.muted.small { font-size: 12px; margin-top: 6px; }
+#api-key-input:focus {
+  outline: none;
+  border-color: #4ade80;
+}
+.muted.small {
+  font-size: 12px;
+  margin-top: 6px;
+}
 
 button.primary {
   background: #4ade80;
@@ -83,13 +122,22 @@ button.primary {
   font-weight: 600;
   cursor: pointer;
   margin-top: 12px;
-  transition: transform 0.1s, opacity 0.2s;
+  transition:
+    transform 0.1s,
+    opacity 0.2s;
 }
-button.primary:hover:not(:disabled) { transform: translateY(-1px); }
-button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+button.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+button.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 /* --- Game screen --- */
-#game-screen { display: block; }
+#game-screen {
+  display: block;
+}
 
 #mapillary-viewer {
   position: absolute;
@@ -111,7 +159,7 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
   border-radius: 8px;
   font-size: 14px;
   color: #e6e8ea;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* HUD pinned to the top-left */
@@ -132,7 +180,10 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
   border: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(6px);
 }
-.hud-item span { color: #4ade80; font-weight: 600; }
+.hud-item span {
+  color: #4ade80;
+  font-weight: 600;
+}
 
 /* Mini-map pinned to bottom-right; expands on hover (GeoGuessr-style) */
 #map-panel {
@@ -143,7 +194,9 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
   z-index: 10;
   transition: width 0.2s;
 }
-#map-panel:hover { width: min(720px, 60vw); }
+#map-panel:hover {
+  width: min(720px, 60vw);
+}
 
 #guess-map {
   width: 100%;
@@ -152,13 +205,23 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
   border: 1px solid rgba(255, 255, 255, 0.15);
   transition: height 0.2s;
 }
-#map-panel:hover #guess-map { height: min(520px, 60vh); }
+#map-panel:hover #guess-map {
+  height: min(520px, 60vh);
+}
 
-#guess-btn { width: 100%; margin-top: 8px; }
+#guess-btn {
+  width: 100%;
+  margin-top: 8px;
+}
 
 /* --- Result screen: full-bleed map with a card overlay --- */
-#result-screen { display: block; }
-#result-map { position: absolute; inset: 0; }
+#result-screen {
+  display: block;
+}
+#result-map {
+  position: absolute;
+  inset: 0;
+}
 .result-card {
   position: absolute;
   bottom: 32px;
@@ -168,4 +231,6 @@ button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 /* Leaflet tweaks for dark theme */
-.leaflet-container { background: #1a202c; }
+.leaflet-container {
+  background: #1a202c;
+}

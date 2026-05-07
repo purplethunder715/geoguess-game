@@ -2,10 +2,10 @@
 // and the two Leaflet maps (guess + result).
 
 const SCREENS = {
-  start:  document.getElementById('start-screen'),
-  game:   document.getElementById('game-screen'),
+  start: document.getElementById('start-screen'),
+  game: document.getElementById('game-screen'),
   result: document.getElementById('result-screen'),
-  end:    document.getElementById('end-screen'),
+  end: document.getElementById('end-screen'),
 };
 
 const ROUNDS_PER_GAME = 5;
@@ -37,7 +37,7 @@ const state = {
   round: 0,
   score: 0,
   currentLocation: null,
-  actualPoint: null,        // {lat, lng} of the panorama Mapillary actually returned
+  actualPoint: null, // {lat, lng} of the panorama Mapillary actually returned
   guessLatLng: null,
   guessMarker: null,
   guessMap: null,
@@ -54,15 +54,16 @@ const state = {
 };
 
 function showScreen(name) {
-  Object.values(SCREENS).forEach(s => s.classList.add('hidden'));
+  Object.values(SCREENS).forEach((s) => s.classList.add('hidden'));
   SCREENS[name].classList.remove('hidden');
 }
 
 function pickRandomLocation() {
   if (state.usedIndices.length >= LOCATIONS.length) state.usedIndices = [];
   let idx;
-  do { idx = Math.floor(Math.random() * LOCATIONS.length); }
-  while (state.usedIndices.includes(idx));
+  do {
+    idx = Math.floor(Math.random() * LOCATIONS.length);
+  } while (state.usedIndices.includes(idx));
   state.usedIndices.push(idx);
   return LOCATIONS[idx];
 }
@@ -82,8 +83,10 @@ function resolveToken() {
 // array (possibly empty) or throws on HTTP / API / timeout error.
 async function mapillaryQuery(lat, lng, token, panoOnly) {
   const bbox = [
-    lng - SEARCH_DELTA_DEG, lat - SEARCH_DELTA_DEG,
-    lng + SEARCH_DELTA_DEG, lat + SEARCH_DELTA_DEG,
+    lng - SEARCH_DELTA_DEG,
+    lat - SEARCH_DELTA_DEG,
+    lng + SEARCH_DELTA_DEG,
+    lat + SEARCH_DELTA_DEG,
   ].join(',');
   // Note: `is_pano` is a *filter param* (cheap), not a *field*. Requesting
   // it as a field errored out with "reduce the amount of data" — keep it
@@ -99,8 +102,9 @@ async function mapillaryQuery(lat, lng, token, panoOnly) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(`https://graph.mapillary.com/images?${params}`,
-                            { signal: ctrl.signal });
+    const res = await fetch(`https://graph.mapillary.com/images?${params}`, {
+      signal: ctrl.signal,
+    });
     if (!res.ok) throw new Error(`Mapillary HTTP ${res.status}`);
     const data = await res.json();
     if (data.error) {
@@ -149,11 +153,18 @@ function showImageInViewer(imageId, token) {
     });
   };
 
-  if (!state.viewer) { create(); return; }
+  if (!state.viewer) {
+    create();
+    return;
+  }
 
-  state.viewer.moveTo(imageId).catch(err => {
+  state.viewer.moveTo(imageId).catch((err) => {
     console.warn('Mapillary moveTo failed; rebuilding viewer:', err);
-    try { state.viewer.remove(); } catch (_) { /* ignore */ }
+    try {
+      state.viewer.remove();
+    } catch (_) {
+      /* ignore */
+    }
     state.viewer = null;
     create();
   });
@@ -226,8 +237,7 @@ async function showPrefetchedRound() {
 // --- Guess map -------------------------------------------------------------
 
 function buildSatelliteLayers(map) {
-  L.tileLayer(SATELLITE_TILES, { maxZoom: 19, attribution: 'Tiles © Esri' })
-    .addTo(map);
+  L.tileLayer(SATELLITE_TILES, { maxZoom: 19, attribution: 'Tiles © Esri' }).addTo(map);
   // Labels overlay (city/country names) so guessing is actually feasible.
   L.tileLayer(LABELS_TILES, { maxZoom: 19, opacity: 0.9 }).addTo(map);
 }
@@ -240,7 +250,7 @@ function initGuessMap() {
     zoom: 1,
     worldCopyJump: true,
     minZoom: 1,
-    maxZoom: 18,        // Esri imagery supports up to 19; cap at 18 so labels still load
+    maxZoom: 18, // Esri imagery supports up to 19; cap at 18 so labels still load
     attributionControl: false,
   });
   buildSatelliteLayers(state.guessMap);
@@ -274,7 +284,10 @@ function initGuessMap() {
 
 function startTimer() {
   const hud = document.getElementById('timer-hud');
-  if (!state.timerEnabled) { hud.style.display = 'none'; return; }
+  if (!state.timerEnabled) {
+    hud.style.display = 'none';
+    return;
+  }
 
   hud.style.display = '';
   state.timeLeft = ROUND_SECONDS;
@@ -318,8 +331,10 @@ function submitGuess(timedOut = false) {
   let points = 0;
   if (state.guessLatLng && state.actualPoint) {
     distance = haversineDistance(
-      state.guessLatLng.lat, state.guessLatLng.lng,
-      state.actualPoint.lat, state.actualPoint.lng,
+      state.guessLatLng.lat,
+      state.guessLatLng.lng,
+      state.actualPoint.lat,
+      state.actualPoint.lng,
     );
     points = calculateScore(distance);
   }
@@ -340,14 +355,17 @@ function showResult(distance, points, timedOut) {
     buildSatelliteLayers(state.resultMap);
 
     const actual = [state.actualPoint.lat, state.actualPoint.lng];
-    L.marker(actual).addTo(state.resultMap)
-      .bindPopup(state.currentLocation.name).openPopup();
+    L.marker(actual)
+      .addTo(state.resultMap)
+      .bindPopup(state.currentLocation.name)
+      .openPopup();
 
     if (state.guessLatLng) {
       const guess = [state.guessLatLng.lat, state.guessLatLng.lng];
       L.marker(guess).addTo(state.resultMap);
-      L.polyline([guess, actual], { color: '#4ade80', dashArray: '6,8' })
-        .addTo(state.resultMap);
+      L.polyline([guess, actual], { color: '#4ade80', dashArray: '6,8' }).addTo(
+        state.resultMap,
+      );
       state.resultMap.fitBounds(L.latLngBounds([guess, actual]).pad(0.3));
     } else {
       state.resultMap.setView(actual, 4);
@@ -358,7 +376,9 @@ function showResult(distance, points, timedOut) {
     `+${points.toLocaleString()} points`;
   document.getElementById('result-distance').textContent =
     distance === null
-      ? (timedOut ? 'Time ran out — no guess submitted' : 'No guess made')
+      ? timedOut
+        ? 'Time ran out — no guess submitted'
+        : 'No guess made'
       : `You were ${formatDistance(distance)} away`;
   document.getElementById('result-location').textContent = state.currentLocation.name;
 
@@ -414,7 +434,7 @@ startBtn.addEventListener('click', () => {
 
   state.timerEnabled = document.getElementById('timer-toggle').checked;
   resetGame();
-  primeRoundQueue();   // fire all 5 lookups now, in parallel
+  primeRoundQueue(); // fire all 5 lookups now, in parallel
   startRound();
 });
 

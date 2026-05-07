@@ -78,6 +78,6 @@ buckets, and dataset shape. Plain `node` + `assert`, no test framework.
 - **Mapillary lookup**: each round queries the Graph API for any image in
   a ~4–5 km bbox around the chosen city center, prefers true 360° panoramas,
   retries with another city if nothing's there.
-- **Scoring**: Haversine distance from your guess to the *actual* photo
+- **Scoring**: Haversine distance from your guess to the _actual_ photo
   position (not the dataset center), then `5000 * exp(-km / 2000)` capped
   at 5,000 points.

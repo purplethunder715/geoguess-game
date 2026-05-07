@@ -4,12 +4,12 @@
 // Great-circle distance between two lat/lng points, in kilometers.
 function haversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371;
-  const toRad = d => d * Math.PI / 180;
+  const toRad = (d) => (d * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) ** 2;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
@@ -32,7 +32,7 @@ function ratingFor(totalScore) {
   if (totalScore >= 22500) return 'World traveler!';
   if (totalScore >= 17500) return 'Geography buff';
   if (totalScore >= 12500) return 'Decent navigator';
-  if (totalScore >=  7500) return 'Getting there...';
+  if (totalScore >= 7500) return 'Getting there...';
   return 'Keep exploring!';
 }
 

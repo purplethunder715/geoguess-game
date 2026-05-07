@@ -4,28 +4,40 @@
 const assert = require('assert');
 const path = require('path');
 
-const { haversineDistance, calculateScore, formatDistance, ratingFor } =
-  require(path.join('..', 'public', 'lib.js'));
+const { haversineDistance, calculateScore, formatDistance, ratingFor } = require(
+  path.join('..', 'public', 'lib.js'),
+);
 
 // Load locations.js by reading + evaluating it. It defines `const LOCATIONS`,
 // which we surface via a wrapping `module.exports = LOCATIONS` shim.
 const fs = require('fs');
 const locSrc = fs.readFileSync(
-  path.join(__dirname, '..', 'public', 'locations.js'), 'utf8',
+  path.join(__dirname, '..', 'public', 'locations.js'),
+  'utf8',
 );
 let LOCATIONS;
 {
   // Evaluate in a function scope so the `const` doesn't leak globally.
-  // eslint-disable-next-line no-new-func
+
   LOCATIONS = new Function(locSrc + '\nreturn LOCATIONS;')();
 }
 
-let passed = 0, failed = 0;
+let passed = 0,
+  failed = 0;
 function test(name, fn) {
-  try { fn(); console.log(`  ✓ ${name}`); passed++; }
-  catch (err) { console.log(`  ✗ ${name}\n    ${err.message}`); failed++; }
+  try {
+    fn();
+    console.log(`  ✓ ${name}`);
+    passed++;
+  } catch (err) {
+    console.log(`  ✗ ${name}\n    ${err.message}`);
+    failed++;
+  }
 }
-function group(name, body) { console.log(`\n${name}`); body(); }
+function group(name, body) {
+  console.log(`\n${name}`);
+  body();
+}
 
 // ---------------- haversineDistance ----------------------------------------
 
@@ -41,7 +53,7 @@ group('haversineDistance', () => {
   });
 
   test('NYC -> LA is ~3936 km (within 20 km)', () => {
-    const d = haversineDistance(40.7128, -74.0060, 34.0522, -118.2437);
+    const d = haversineDistance(40.7128, -74.006, 34.0522, -118.2437);
     assert.ok(Math.abs(d - 3936) < 20, `expected ~3936, got ${d.toFixed(1)}`);
   });
 
@@ -113,8 +125,8 @@ group('ratingFor', () => {
     assert.strictEqual(ratingFor(22499), 'Geography buff');
     assert.strictEqual(ratingFor(17500), 'Geography buff');
     assert.strictEqual(ratingFor(12500), 'Decent navigator');
-    assert.strictEqual(ratingFor( 7500), 'Getting there...');
-    assert.strictEqual(ratingFor(    0), 'Keep exploring!');
+    assert.strictEqual(ratingFor(7500), 'Getting there...');
+    assert.strictEqual(ratingFor(0), 'Keep exploring!');
   });
 });
 
@@ -128,12 +140,12 @@ group('LOCATIONS dataset', () => {
 
   test('every entry has valid lat/lng/name', () => {
     for (const loc of LOCATIONS) {
-      assert.ok(typeof loc.name === 'string' && loc.name.length > 0,
-        `bad name: ${JSON.stringify(loc)}`);
-      assert.ok(loc.lat >= -90 && loc.lat <= 90,
-        `bad lat in ${loc.name}: ${loc.lat}`);
-      assert.ok(loc.lng >= -180 && loc.lng <= 180,
-        `bad lng in ${loc.name}: ${loc.lng}`);
+      assert.ok(
+        typeof loc.name === 'string' && loc.name.length > 0,
+        `bad name: ${JSON.stringify(loc)}`,
+      );
+      assert.ok(loc.lat >= -90 && loc.lat <= 90, `bad lat in ${loc.name}: ${loc.lat}`);
+      assert.ok(loc.lng >= -180 && loc.lng <= 180, `bad lng in ${loc.name}: ${loc.lng}`);
     }
   });
 
