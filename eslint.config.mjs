@@ -86,4 +86,15 @@ export default [
       globals: nodeGlobals,
     },
   },
+  {
+    // Playwright specs run in Node, but `addInitScript` / `page.evaluate`
+    // callbacks execute in the browser — give them browser globals too.
+    files: ['tests/e2e/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...nodeGlobals,
+        ...browserGlobals,
+      },
+    },
+  },
 ];

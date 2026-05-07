@@ -13,12 +13,14 @@ This repo is co-worked with `purplethunder715` (the source/owner). Both work dir
 ```bash
 npm install        # one-time
 npm start          # node server.js  →  http://localhost:3000
-npm test           # plain-node assertions, no framework
+npm test           # unit tests (plain-node assertions, no framework)
+npm run test:e2e   # Playwright e2e tests with mocked Mapillary
+npm run test:all   # both
 npm run lint       # eslint + prettier --check (read-only)
 npm run lint:fix   # eslint --fix + prettier --write
 ```
 
-`npm test` runs a single file ([tests/test.js](tests/test.js)). To run a subset, comment out `group(...)` calls — there's no per-test runner.
+`npm test` runs a single file ([tests/test.js](tests/test.js)). To run a subset of unit tests, comment out `group(...)` calls. For e2e, use `npx playwright test <pattern>` to run a single spec.
 
 ## Standing rule
 
@@ -38,9 +40,13 @@ If your change makes anything in this file stale or missing — new symbols, cha
 
 #### 2. Tests must pass
 
-- Run `npm test`. Always — even for changes that don't touch test code, in case of regressions.
+- Run `npm test` (unit) always — even for changes that don't touch test code, in case of regressions.
+- For UI / DOM / state-machine changes in `game.js`, also run `npm run test:e2e` (Playwright with mocked Mapillary).
 - **Prefer fixing the code over fixing the tests.** Only update tests when behavior intentionally changed.
-- **Add tests** for new functionality _before_ re-running. New pure helpers in [public/lib.js](public/lib.js) → matching `group(...)` block in [tests/test.js](tests/test.js).
+- **Add tests** for new functionality _before_ re-running:
+  - New pure helpers in [public/lib.js](public/lib.js) → matching `group(...)` block in [tests/test.js](tests/test.js).
+  - New game-flow / UI behavior → matching spec in [tests/e2e/](tests/e2e/).
+- **Never let e2e tests hit real Mapillary endpoints** — see [Mocking external APIs in e2e](#mocking-external-apis-in-e2e) below. Token quota is finite.
 
 #### 3. Local instance must be running
 
@@ -152,14 +158,22 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `.result-card` — overlay on result screen
 - `#mapillary-viewer`, `#result-map` — full-bleed canvases
 
-### Tests — [tests/test.js](tests/test.js)
+### Unit tests — [tests/test.js](tests/test.js)
 
 - Top of file: `lib.js` `require` + `locations.js` load via a `new Function` shim (because `locations.js` only declares `const LOCATIONS` for the browser, no module export)
 - `group('haversineDistance', ...)` — zero, Paris↔London, NYC↔LA, antipodes, symmetry
 - `group('calculateScore', ...)` — exact hit, monotonicity, ~1000km ≈ 3000pts, huge→0, null/NaN/negative
-- `group('formatDistance', ...)` — sub-km vs ≥1 km
+- `group('formatDistance', ...)` — sub-km, ≥1 km, null/undefined
 - `group('ratingFor', ...)` — bucket boundary cases
 - `group('LOCATIONS dataset', ...)` — shape, lat/lng ranges, no duplicate coords
+
+### E2E tests — [tests/e2e/](tests/e2e/)
+
+Playwright + Chromium. Server is auto-started via `webServer` config; pre-existing servers are reused.
+
+- [tests/e2e/smoke.spec.js](tests/e2e/smoke.spec.js) — start screen UX: title, button enable/disable, localStorage token persistence (no Mapillary calls)
+- [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) — full game flow with mocked Mapillary: Start → drop pin → Submit → result; plus timer-toggle HUD test
+- [playwright.config.mjs](playwright.config.mjs) — chromium-only, headless, `reuseExistingServer: true`
 
 ### Server — [server.js](server.js)
 
@@ -170,6 +184,21 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - [eslint.config.mjs](eslint.config.mjs) — flat config, browser globals for `public/`, node globals for `server.js`/`tests/`. Per-file globals match the script-load layout (`game.js` consumes globals defined by `lib.js` / `locations.js` / `config.js`).
 - [.prettierrc.json](.prettierrc.json) — single quotes, semis, 2-space, trailing commas, 90-char width
 - [.prettierignore](.prettierignore) — excludes `node_modules/`, `package-lock.json`, `public/config.js` (gitignored), `public/locations.js` (alignment is intentional)
+- [playwright.config.mjs](playwright.config.mjs) — chromium-only e2e runner; auto-starts/reuses `npm start` on port 3000
+
+## Mocking external APIs in e2e
+
+**Hard rule: e2e tests must never reach real Mapillary or Esri endpoints.** The Mapillary token has a finite quota and Esri is shared infrastructure. The reusable mock helper lives in [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) (`mockExternalsAndStubViewer`); copy or factor it out when adding new e2e tests that hit the game screen.
+
+What it does, and why each piece is needed:
+
+- **`page.route('**/graph.mapillary.com/**', ...)`** — returns a fake pano (Paris coords) for every Graph API request. Without this, `findMapillaryImage` would hit live Mapillary.
+- **`page.route('**/unpkg.com/mapillary-js@**', ...)`** — blocks the Mapillary JS SDK (and its CSS). Necessary because we provide our own stub `window.mapillary.Viewer`; loading the real SDK would overwrite it.
+- **`page.route('**/server.arcgisonline.com/**', ...)`** — blocks Esri tile requests. Leaflet still handles clicks without tiles, so the test works fine — and we save Esri the bandwidth.
+- **`page.addInitScript(() => { window.mapillary = { Viewer: ... } })`** — installs a no-op stub _before_ any page script runs. The stub satisfies `new mapillary.Viewer(...)`, `viewer.moveTo()`, `viewer.remove()` so `showImageInViewer` works without trying to render.
+- **`localStorage.setItem('geoguess.mapillaryToken', ...)`** — pre-sets a fake token via `addInitScript`, skipping the start-screen input.
+
+When adding new e2e tests, prefer reusing the helper. If you need a different mock response (e.g., empty-data path, error path), customize within the test rather than mutating the helper.
 
 ## Conventions
 

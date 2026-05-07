@@ -114,6 +114,11 @@ group('formatDistance', () => {
     assert.strictEqual(formatDistance(1.4), '1 km');
     assert.strictEqual(formatDistance(1234.56), (1235).toLocaleString() + ' km');
   });
+
+  test('null / undefined render as empty string', () => {
+    assert.strictEqual(formatDistance(null), '');
+    assert.strictEqual(formatDistance(undefined), '');
+  });
 });
 
 // ---------------- ratingFor ------------------------------------------------
