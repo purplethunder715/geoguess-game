@@ -23,13 +23,20 @@ const SEARCH_DELTA_DEG = 0.04;
 const FETCH_TIMEOUT_MS = 5000;
 
 // How many parallel location lookups to fire per prepareRound batch. First
-// one to succeed wins; the others are abandoned (their HTTP responses just
-// get dropped). Burns a few extra Mapillary requests per round in exchange
-// for much lower worst-case latency when one location has slow coverage.
-const PARALLEL_ATTEMPTS = 3;
+// one to succeed wins; the others are abandoned. Brady has plenty of CPU
+// and bandwidth and explicitly opted for max parallelism — set high.
+const PARALLEL_ATTEMPTS = 8;
 
-// How many of those parallel batches to retry sequentially before giving up.
-const MAX_BATCHES = 4;
+// prepareRound retries forever. We only show an error if EVERY attempt
+// across this many consecutive batches failed with an HTTP/network error
+// (not a coverage miss). Set absurdly high so coverage-miss streaks never
+// trip it — only a genuine extended outage will.
+const MAX_CONSECUTIVE_HTTP_BATCHES = 100;
+
+// Keep this many extra prefetched rounds in the pool beyond what's strictly
+// needed for the rest of the game. Higher = more background search density,
+// near-zero perceived latency on round transitions.
+const POOL_BUFFER = 10;
 
 // We only accept a panorama if its sequence has at least this many panos
 // inside the bbox — that guarantees the player can press the navigation
@@ -60,6 +67,10 @@ const state = {
   // Race-based pool of prefetched rounds. take() returns whichever lookup
   // resolves first, not whichever was queued first. See createRoundPool().
   roundPool: null,
+  // Set true while a game is in progress. Background prefetches loop
+  // forever and bail out via this flag when the game ends, so reset/restart
+  // doesn't leave zombie API calls running.
+  gameRunning: false,
 };
 
 function showScreen(name) {
@@ -232,31 +243,57 @@ async function attemptOneLocation(token) {
   return { loc, image };
 }
 
-// Resolve one round's data. Fires PARALLEL_ATTEMPTS lookups simultaneously
-// and takes the first one that succeeds — drastically cuts worst-case
-// latency when one location has slow Mapillary coverage. Retries with
-// fresh batches up to MAX_BATCHES times.
+// Tells whether an error from attemptOneLocation looks like an HTTP/network
+// problem (vs. a "no imagery here" coverage miss). Used to decide whether
+// to count toward the consecutive-failures threshold.
+function isHttpFailure(err) {
+  if (!err) return false;
+  if (err.name === 'AbortError') return true;
+  const msg = err.message || '';
+  return msg.includes('Mapillary HTTP') || msg.includes('Mapillary API');
+}
+
+// Resolve one round's data. Loops *forever* until either a walkable panorama
+// is found or the API's been down for many consecutive batches. Coverage
+// misses don't count toward the failure threshold — only HTTP/network
+// errors do, so "no panos in this random rural spot" never produces an
+// error to the user, just another retry with a different location.
 async function prepareRound(token) {
-  for (let batch = 0; batch < MAX_BATCHES; batch++) {
+  let httpErrorBatches = 0;
+
+  while (state.gameRunning) {
     try {
       const result = await Promise.any(
         Array.from({ length: PARALLEL_ATTEMPTS }, () => attemptOneLocation(token)),
       );
-      // Warm the browser cache with the thumbnail; the panorama viewer
-      // tiles aren't the same URL but Mapillary's CDN connection gets reused.
       preloadImage(result.image.thumbUrl);
       return result;
     } catch (aggregate) {
-      console.warn(`prepareRound batch ${batch + 1} all failed:`, aggregate);
+      // AggregateError carries the inner rejections in `errors`.
+      const errs = (aggregate && aggregate.errors) || [];
+      const allHttp = errs.length > 0 && errs.every(isHttpFailure);
+      if (allHttp) {
+        httpErrorBatches++;
+        if (httpErrorBatches >= MAX_CONSECUTIVE_HTTP_BATCHES) {
+          throw new Error('Mapillary API appears unreachable');
+        }
+      } else {
+        // At least one attempt was just a coverage miss — server is fine.
+        httpErrorBatches = 0;
+      }
     }
   }
-  throw new Error('No Mapillary imagery found after several batches');
+  throw new Error('Game ended');
 }
 
 // Race-based pool: round N takes whichever prefetch resolved first, NOT
 // whichever was queued first. Eliminates the case where round 1 waits for
 // a slow lookup while later prefetches already finished.
-function createRoundPool() {
+//
+// `onSettled` fires after every task resolves OR rejects so the caller can
+// top the pool back up immediately — that keeps background search density
+// high even when individual prefetches reject (e.g. transient HTTP blips).
+function createRoundPool(onSettled = () => {}) {
   const pending = new Set();
   const ready = [];
 
@@ -267,15 +304,19 @@ function createRoundPool() {
         (result) => {
           ready.push(result);
           pending.delete(promise);
+          onSettled();
         },
         (err) => {
           console.warn('Pool task rejected:', err);
           pending.delete(promise);
+          onSettled();
         },
       );
     },
     async take() {
-      // Spin until something is ready (or pool is fully drained).
+      // Spin until something is ready. With infinite-retry prepareRound,
+      // pool tasks only reject if the API is genuinely down — in that case
+      // we eventually hit "pool exhausted" and the caller surfaces an error.
       while (true) {
         if (ready.length > 0) return ready.shift();
         if (pending.size === 0) throw new Error('Round pool exhausted');
@@ -290,19 +331,35 @@ function createRoundPool() {
   };
 }
 
-// Kick off all upcoming rounds in parallel. Round transitions after the
-// first should be instant because their lookups overlap with whatever
-// round the user is currently playing.
-function primeRoundQueue() {
-  const token = resolveToken();
-  state.roundPool = createRoundPool();
-  for (let i = 0; i < ROUNDS_PER_GAME; i++) {
-    state.roundPool.add(prepareRound(token));
+// Top off the prefetch pool so it always has at least
+// `(rounds remaining) + POOL_BUFFER` lookups in flight or ready. Called at
+// game start, after every round consumed, and after every prefetch
+// resolution. Runs every prefetch through the same prepareRound (which
+// loops forever), so a coverage-miss here never surfaces to the user.
+function ensurePoolFull() {
+  if (!state.roundPool || !state.gameRunning) return;
+  const remaining = Math.max(0, ROUNDS_PER_GAME - state.round);
+  const target = remaining + POOL_BUFFER;
+  const sizes = state.roundPool.sizes();
+  const have = sizes.ready + sizes.pending;
+  const need = Math.max(0, target - have);
+  for (let i = 0; i < need; i++) {
+    state.roundPool.add(prepareRound(resolveToken()));
   }
+}
+
+// Prime the pool at game start. Continuous topping-off happens via
+// ensurePoolFull() called after each round consumed.
+function primeRoundQueue() {
+  state.gameRunning = true;
+  state.roundPool = createRoundPool(() => ensurePoolFull());
+  ensurePoolFull();
 }
 
 // Pull whichever prefetched round is ready first. Shows a brief overlay
 // only if no round is ready inside 200 ms (avoids a one-frame flash).
+// We never show "Could not load round: <coverage miss>" anymore — prepareRound
+// loops forever until either it succeeds or the API is genuinely unreachable.
 async function showPrefetchedRound() {
   const status = document.getElementById('streetview-status');
 
@@ -315,19 +372,19 @@ async function showPrefetchedRound() {
   try {
     result = await state.roundPool.take();
   } catch (err) {
-    // Pool was empty AND every pending task failed. Last-ditch live lookup.
-    console.warn('Round pool drained; running live prepareRound:', err);
-    try {
-      result = await prepareRound(resolveToken());
-    } catch (err2) {
-      clearTimeout(overlayTimer);
-      status.classList.remove('hidden');
-      status.textContent = `Could not load round: ${err2.message}`;
-      return;
-    }
+    // Only reachable if every pool task hit the HTTP-error threshold,
+    // i.e. Mapillary is genuinely unreachable. Surface the error and stop.
+    clearTimeout(overlayTimer);
+    status.classList.remove('hidden');
+    status.textContent = `Mapillary unreachable — check your network. (${err.message})`;
+    return;
   }
   clearTimeout(overlayTimer);
   status.classList.add('hidden');
+
+  // Top off the pool now that we've consumed one — keeps the background
+  // search running at full POOL_BUFFER even mid-game.
+  ensurePoolFull();
 
   state.currentLocation = result.loc;
   // Use the actual photo coords for scoring — they may be a few hundred
@@ -489,6 +546,8 @@ function showResult(distance, points, timedOut) {
 }
 
 function endGame() {
+  // Stop background prefetch loops as soon as the last round is scored.
+  state.gameRunning = false;
   showScreen('end');
   document.getElementById('final-score').textContent =
     `${state.score.toLocaleString()} / 25,000`;
@@ -496,6 +555,10 @@ function endGame() {
 }
 
 function resetGame() {
+  // Flip the kill switch BEFORE clearing the pool so any in-flight
+  // prepareRound loops bail out on their next iteration instead of
+  // continuing to run against a discarded pool.
+  state.gameRunning = false;
   state.round = 0;
   state.score = 0;
   state.currentLocation = null;
