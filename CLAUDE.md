@@ -1,9 +1,14 @@
 # GeoGuess — project notes for Claude
 
-## ⚙️ Standing rule: commit + push + keep this file current
+## ⚙️ Standing rule: pull → work → commit → push, every turn
 
-After **every meaningful user prompt** (a feature added, a bug fixed, an
-architectural decision made):
+**At the start of every turn** (before reading files, before editing,
+before *anything*): run `git pull` from the project root. The repo has
+collaborators (Jus144tice has push access) so remote may be ahead; pulling
+first prevents needless merge conflicts.
+
+**After every meaningful user prompt** — a feature added, a bug fixed, an
+architectural decision made:
 
 1. **Update this CLAUDE.md** if anything in here is now stale or missing —
    new files, changed conventions, new gotchas, the why behind a decision.
