@@ -60,6 +60,15 @@ If your change makes anything in this file stale or missing — new symbols, cha
 - Commit on `master` with a _why_-focused message (not "update files").
 - `git push origin master`.
 - The repo lives at <https://github.com/purplethunder715/geoguess-game>.
+- **GitHub Actions runs the same gate as your local flow**
+  ([.github/workflows/ci.yml](.github/workflows/ci.yml)): `npm run lint`,
+  `npm test`, Playwright e2e on every push to master and every PR. A red CI
+  run means something slipped through your local checks — investigate and
+  fix forward in a follow-up commit. Watch runs at
+  <https://github.com/purplethunder715/geoguess-game/actions>.
+- Dependabot opens grouped weekly PRs for npm + github-actions updates
+  ([.github/dependabot.yml](.github/dependabot.yml)). Treat them like any
+  other PR — CI gates them automatically.
 
 [public/config.js](public/config.js) stays out of every commit (see [Secrets](#secrets--publicconfigjs) below).
 

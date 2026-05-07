@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Keep npm deps fresh. One grouped PR per week for everything non-major,
+  # individual PRs for majors so they're reviewed deliberately.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # GitHub Actions upgrades (actions/checkout, actions/setup-node, etc.).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      all-actions:
+        patterns: ['*']
