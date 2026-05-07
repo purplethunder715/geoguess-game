@@ -1,5 +1,24 @@
 # GeoGuess — project notes for Claude
 
+## ⚙️ Standing rule: commit + push + keep this file current
+
+After **every meaningful user prompt** (a feature added, a bug fixed, an
+architectural decision made):
+
+1. **Update this CLAUDE.md** if anything in here is now stale or missing —
+   new files, changed conventions, new gotchas, the why behind a decision.
+2. **Commit** the work locally with a focused message describing the *why*.
+3. **Push** to `origin/master` (`git push`). The repo lives at
+   <https://github.com/purplethunder715/geoguess-game>.
+
+A "meaningful" prompt is anything that produces a code change, a config
+change, or a documented decision. Pure clarifying-question turns don't
+need a commit. When in doubt, commit.
+
+`public/config.js` stays out of every commit (see warning below).
+
+
+
 A small GeoGuessr clone. Static frontend served by a tiny Express app on
 `http://localhost:3000`. The whole game runs in the browser; the server
 only exists because some browsers/tools dislike `file://`.
