@@ -275,7 +275,9 @@ async function prepareRound(token) {
       if (allHttp) {
         httpErrorBatches++;
         if (httpErrorBatches >= MAX_CONSECUTIVE_HTTP_BATCHES) {
-          throw new Error('Mapillary API appears unreachable');
+          // Preserve the underlying AggregateError as `cause` so the dev
+          // console keeps the original HTTP failures for debugging.
+          throw new Error('Mapillary API appears unreachable', { cause: aggregate });
         }
       } else {
         // At least one attempt was just a coverage miss — server is fine.
