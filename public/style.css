@@ -1,0 +1,171 @@
+/* Reset + base */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0e1116;
+  color: #e6e8ea;
+  overflow: hidden;
+}
+
+button { font-family: inherit; }
+
+/* Screen container shared by start / game / result / end */
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hidden { display: none !important; }
+
+/* Card used by start, result, and end screens */
+.card {
+  background: rgba(20, 24, 32, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 32px 40px;
+  max-width: 480px;
+  text-align: center;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+}
+.card h1 { font-size: 36px; margin-bottom: 12px; letter-spacing: -0.5px; }
+.card h2 { font-size: 28px; margin: 12px 0; color: #4ade80; }
+.card p  { line-height: 1.5; margin-bottom: 8px; }
+.card .muted { color: #94a3b8; font-size: 14px; }
+
+.toggle {
+  display: flex; align-items: center; gap: 8px;
+  margin: 16px 0;
+  cursor: pointer;
+  font-size: 14px; color: #94a3b8;
+  justify-content: center;
+}
+.toggle input { cursor: pointer; }
+
+/* API key field on the start screen */
+#api-key-section {
+  margin: 20px 0 8px;
+  text-align: left;
+}
+.field-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+.field-label a { color: #4ade80; text-decoration: none; }
+.field-label a:hover { text-decoration: underline; }
+#api-key-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(0,0,0,0.3);
+  color: #e6e8ea;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+#api-key-input:focus { outline: none; border-color: #4ade80; }
+.muted.small { font-size: 12px; margin-top: 6px; }
+
+button.primary {
+  background: #4ade80;
+  color: #0e1116;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 12px;
+  transition: transform 0.1s, opacity 0.2s;
+}
+button.primary:hover:not(:disabled) { transform: translateY(-1px); }
+button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* --- Game screen --- */
+#game-screen { display: block; }
+
+#mapillary-viewer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+/* Status overlay shown while we look up a panorama for the round */
+#streetview-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  background: rgba(14, 17, 22, 0.85);
+  padding: 14px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #e6e8ea;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* HUD pinned to the top-left */
+#hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+.hud-item {
+  background: rgba(14, 17, 22, 0.85);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+}
+.hud-item span { color: #4ade80; font-weight: 600; }
+
+/* Mini-map pinned to bottom-right; expands on hover (GeoGuessr-style) */
+#map-panel {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 280px;
+  z-index: 10;
+  transition: width 0.2s;
+}
+#map-panel:hover { width: 540px; }
+
+#guess-map {
+  width: 100%;
+  height: 200px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: height 0.2s;
+}
+#map-panel:hover #guess-map { height: 380px; }
+
+#guess-btn { width: 100%; margin-top: 8px; }
+
+/* --- Result screen: full-bleed map with a card overlay --- */
+#result-screen { display: block; }
+#result-map { position: absolute; inset: 0; }
+.result-card {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+}
+
+/* Leaflet tweaks for dark theme */
+.leaflet-container { background: #1a202c; }

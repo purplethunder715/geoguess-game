@@ -1,0 +1,5 @@
+node_modules/
+
+# Holds a personal Mapillary token. Do NOT commit unless the user has
+# explicitly said it's OK to share the token alongside the code.
+public/config.js
