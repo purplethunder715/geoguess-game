@@ -23,20 +23,31 @@ const SEARCH_DELTA_DEG = 0.04;
 const FETCH_TIMEOUT_MS = 5000;
 
 // How many parallel location lookups to fire per prepareRound batch. First
-// one to succeed wins; the others are abandoned. Brady has plenty of CPU
-// and bandwidth and explicitly opted for max parallelism — set high.
-const PARALLEL_ATTEMPTS = 8;
+// one to succeed wins; the others are abandoned. NOTE: the bottleneck is
+// Mapillary's free-tier rate limit, NOT Brady's machine. Setting this too
+// high (was 8 for one painful afternoon) makes Mapillary 500 every request
+// and cascades into a CORS-error-looking failure across every round. 3 is
+// the sweet spot: still fast, doesn't trigger throttling.
+const PARALLEL_ATTEMPTS = 3;
 
 // prepareRound retries forever. We only show an error if EVERY attempt
 // across this many consecutive batches failed with an HTTP/network error
-// (not a coverage miss). Set absurdly high so coverage-miss streaks never
-// trip it — only a genuine extended outage will.
-const MAX_CONSECUTIVE_HTTP_BATCHES = 100;
+// (not a coverage miss). Set high so coverage-miss streaks never trip it,
+// but not absurd — once we hit ~20 batches in a row of pure HTTP errors,
+// we're either rate-limited or genuinely down and should stop hammering.
+const MAX_CONSECUTIVE_HTTP_BATCHES = 20;
 
 // Keep this many extra prefetched rounds in the pool beyond what's strictly
-// needed for the rest of the game. Higher = more background search density,
-// near-zero perceived latency on round transitions.
-const POOL_BUFFER = 10;
+// needed. Was 10 — combined with PARALLEL_ATTEMPTS=8 that's 80+ requests
+// in flight per game and Mapillary's free tier rate-limits well below that.
+const POOL_BUFFER = 3;
+
+// Exponential backoff after an HTTP failure batch. Starts at this many ms,
+// doubles each time, caps at BACKOFF_MAX_MS. Reset on any successful batch.
+// Without this, a transient rate-limit turns into an unbreakable loop:
+// every retry adds to Mapillary's anger, prolonging the limit window.
+const BACKOFF_BASE_MS = 1500;
+const BACKOFF_MAX_MS = 30000;
 
 // We only accept a panorama if its sequence has at least this many panos
 // inside the bbox — that guarantees the player can press the navigation
@@ -258,6 +269,9 @@ function isHttpFailure(err) {
 // misses don't count toward the failure threshold — only HTTP/network
 // errors do, so "no panos in this random rural spot" never produces an
 // error to the user, just another retry with a different location.
+//
+// Exponential backoff between HTTP-error batches: stops us from amplifying
+// a Mapillary rate-limit by spamming retries while they're already mad.
 async function prepareRound(token) {
   let httpErrorBatches = 0;
 
@@ -279,6 +293,14 @@ async function prepareRound(token) {
           // console keeps the original HTTP failures for debugging.
           throw new Error('Mapillary API appears unreachable', { cause: aggregate });
         }
+        // Back off exponentially before the next batch: 1.5s, 3s, 6s, 12s,
+        // capped at BACKOFF_MAX_MS. Gives Mapillary's rate-limit window time
+        // to expire instead of compounding the throttle.
+        const wait = Math.min(
+          BACKOFF_MAX_MS,
+          BACKOFF_BASE_MS * 2 ** (httpErrorBatches - 1),
+        );
+        await new Promise((r) => setTimeout(r, wait));
       } else {
         // At least one attempt was just a coverage miss — server is fine.
         httpErrorBatches = 0;
@@ -374,11 +396,15 @@ async function showPrefetchedRound() {
   try {
     result = await state.roundPool.take();
   } catch (err) {
-    // Only reachable if every pool task hit the HTTP-error threshold,
-    // i.e. Mapillary is genuinely unreachable. Surface the error and stop.
+    // Only reachable if every pool task hit the HTTP-error threshold.
+    // Most common cause is Mapillary's free-tier rate limit kicking in
+    // after sustained burst traffic; the limit window is usually
+    // a few minutes. Outright outages are rare.
     clearTimeout(overlayTimer);
     status.classList.remove('hidden');
-    status.textContent = `Mapillary unreachable — check your network. (${err.message})`;
+    status.textContent =
+      `Mapillary stopped responding (likely rate-limited). ` +
+      `Wait a few minutes and refresh, or generate a new token. (${err.message})`;
     return;
   }
   clearTimeout(overlayTimer);
