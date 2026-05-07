@@ -22,23 +22,17 @@ npm run lint:fix   # eslint --fix + prettier --write
 
 `npm test` runs a single file ([tests/test.js](tests/test.js)). To run a subset of unit tests, comment out `group(...)` calls. For e2e, use `npx playwright test <pattern>` to run a single spec.
 
-## Standing rule
-
-### Turn-start ritual: `git pull`
-
-**At the start of every turn** (before reading files, before editing, before _anything_): run `git pull` from the project root. The repo has collaborators (`Jus144tice` has push access; `purplethunder715` is the source/owner) so remote may be ahead; pulling first prevents needless merge conflicts.
-
-### 5 mandates per meaningful change
+## Standing rule: 5 mandates per meaningful change
 
 A "meaningful change" is anything that produces a code or config change, or a documented decision. Pure clarifying-question turns don't qualify.
 
-The mandates run in order. Don't skip ahead — each step assumes the previous one passed.
+The mandates run in order. Don't skip ahead — each step assumes the previous one passed. Don't add extra "safety" steps either: don't re-run tests after lint, don't pull before push. If `git push` is rejected because remote is ahead, deal with that conflict _then_ (which may reset the flow because there's new code to retest — that's fine).
 
-#### 1. CLAUDE.md is self-updating
+### 1. CLAUDE.md is self-updating
 
 If your change makes anything in this file stale or missing — new symbols, changed conventions, new gotchas, new files, the _why_ behind a decision — update this file **in the same session**. Don't defer to "next time".
 
-#### 2. Tests must pass
+### 2. Tests must pass
 
 - Run `npm test` (unit) always — even for changes that don't touch test code, in case of regressions.
 - For UI / DOM / state-machine changes in `game.js`, also run `npm run test:e2e` (Playwright with mocked Mapillary).
@@ -48,20 +42,20 @@ If your change makes anything in this file stale or missing — new symbols, cha
   - New game-flow / UI behavior → matching spec in [tests/e2e/](tests/e2e/).
 - **Never let e2e tests hit real Mapillary endpoints** — see [Mocking external APIs in e2e](#mocking-external-apis-in-e2e) below. Token quota is finite.
 
-#### 3. Local instance must be running
+### 3. Local instance must be running
 
 - `npm start` should be running on <http://localhost:3000> while iterating, so manual UI testing works.
 - Static files in `public/` are served as-is — browser refresh shows changes. No rebuild needed.
 - Before declaring a UI change done, verify in the browser. Type checking and tests verify _code correctness_, not _feature correctness_.
 - If port 3000 isn't responding, restart with `npm start` (run in background).
 
-#### 4. Lint + format fixes
+### 4. Lint + format fixes
 
 - After tests pass: `npm run lint:fix` (runs `eslint . --fix` then `prettier --write .`).
 - No test re-run needed afterward — formatting/lint changes don't affect runtime behavior.
 - If eslint reports unfixable errors, address them before moving on.
 
-#### 5. Commit + push
+### 5. Commit + push
 
 - Commit on `master` with a _why_-focused message (not "update files").
 - `git push origin master`.
