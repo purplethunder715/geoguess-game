@@ -12,11 +12,15 @@ const ROUNDS_PER_GAME = 5;
 const ROUND_SECONDS = 60;
 const TOKEN_STORAGE = 'geoguess.mapillaryToken';
 
-// Bbox sizes (in degrees) to try around each location, smallest first.
-// Mapillary rejects bboxes that contain too many images ("reduce the amount
-// of data") so we start tight and grow only when nothing comes back.
-// 0.01° ≈ 1 km, 0.03° ≈ 3 km, 0.07° ≈ 8 km.
-const SEARCH_DELTAS = [0.01, 0.03, 0.07];
+// Bbox half-size (degrees) for Mapillary lookups. ~0.04° ≈ 4 km — wide
+// enough to find coverage in most major cities, tight enough that Mapillary
+// won't reject the query for "too many results" in dense downtowns.
+const SEARCH_DELTA_DEG = 0.04;
+
+// Per-fetch timeout. If Mapillary takes longer than this we abort and treat
+// the lookup as a miss — the prefetcher will retry with another location
+// rather than letting the whole game hang.
+const FETCH_TIMEOUT_MS = 5000;
 
 // How many random locations to try before giving up (Mapillary coverage is
 // patchy so the first pick may have nothing).
@@ -74,15 +78,16 @@ function resolveToken() {
 
 // --- Mapillary imagery lookup ----------------------------------------------
 
-// Single Graph API call. Returns the parsed `data` array (possibly empty),
-// or throws on HTTP / API error.
-async function mapillaryQuery(lat, lng, deltaDeg, token, panoOnly) {
+// Single Graph API call with a hard timeout. Returns the parsed `data`
+// array (possibly empty) or throws on HTTP / API / timeout error.
+async function mapillaryQuery(lat, lng, token, panoOnly) {
   const bbox = [
-    lng - deltaDeg, lat - deltaDeg,
-    lng + deltaDeg, lat + deltaDeg,
+    lng - SEARCH_DELTA_DEG, lat - SEARCH_DELTA_DEG,
+    lng + SEARCH_DELTA_DEG, lat + SEARCH_DELTA_DEG,
   ].join(',');
   // Note: `is_pano` is a *filter param* (cheap), not a *field*. Requesting
-  // it as a field used to error out — keep it as a filter only.
+  // it as a field errored out with "reduce the amount of data" — keep it
+  // as a filter only.
   const params = new URLSearchParams({
     access_token: token,
     fields: 'id,geometry,computed_geometry',
@@ -91,28 +96,30 @@ async function mapillaryQuery(lat, lng, deltaDeg, token, panoOnly) {
   });
   if (panoOnly) params.set('is_pano', 'true');
 
-  const res = await fetch(`https://graph.mapillary.com/images?${params}`);
-  if (!res.ok) throw new Error(`Mapillary HTTP ${res.status}`);
-  const data = await res.json();
-  if (data.error) {
-    throw new Error(`Mapillary API: ${data.error.message || 'unknown'}`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://graph.mapillary.com/images?${params}`,
+                            { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`Mapillary HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) {
+      throw new Error(`Mapillary API: ${data.error.message || 'unknown'}`);
+    }
+    return data.data || [];
+  } finally {
+    clearTimeout(timer);
   }
-  return data.data || [];
 }
 
-// Find a Mapillary image near a lat/lng. Tries panoramas first inside a
-// small bbox, then progressively widens, then drops the pano-only filter
-// as a last resort.
+// Find a Mapillary image near a lat/lng. One pano-only query, fall back to
+// any image type if nothing came back. Was previously up to six sequential
+// queries per location — one or two is plenty.
 async function findMapillaryImage(lat, lng, token) {
-  for (const delta of SEARCH_DELTAS) {
-    const panos = await mapillaryQuery(lat, lng, delta, token, true);
-    if (panos.length > 0) return pickAndExtractCoords(panos);
-  }
-  // No panos at any scale — accept any image type as a last resort.
-  for (const delta of SEARCH_DELTAS) {
-    const any = await mapillaryQuery(lat, lng, delta, token, false);
-    if (any.length > 0) return pickAndExtractCoords(any);
-  }
+  const panos = await mapillaryQuery(lat, lng, token, true);
+  if (panos.length > 0) return pickAndExtractCoords(panos);
+  const any = await mapillaryQuery(lat, lng, token, false);
+  if (any.length > 0) return pickAndExtractCoords(any);
   return null;
 }
 
@@ -129,20 +136,27 @@ function pickAndExtractCoords(imgs) {
 
 // Set up (or move) the Mapillary viewer to a specific image ID. The viewer
 // itself draws blue arrows for connected images so the user can walk between
-// panoramas.
+// panoramas. If `moveTo` fails (bad image ID, network blip, internal viewer
+// state corruption) we tear the viewer down and rebuild it fresh — without
+// this fallback the user gets stuck staring at the previous round's image.
 function showImageInViewer(imageId, token) {
-  if (!state.viewer) {
+  const create = () => {
     state.viewer = new mapillary.Viewer({
       accessToken: token,
       container: 'mapillary-viewer',
       imageId: imageId,
       component: { cover: false },
     });
-  } else {
-    state.viewer.moveTo(imageId).catch(err => {
-      console.error('Mapillary moveTo failed:', err);
-    });
-  }
+  };
+
+  if (!state.viewer) { create(); return; }
+
+  state.viewer.moveTo(imageId).catch(err => {
+    console.warn('Mapillary moveTo failed; rebuilding viewer:', err);
+    try { state.viewer.remove(); } catch (_) { /* ignore */ }
+    state.viewer = null;
+    create();
+  });
 }
 
 // Resolve one round's data: pick a random location, find imagery, retry on

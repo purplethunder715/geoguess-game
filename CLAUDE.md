@@ -58,16 +58,26 @@ geoguess-game/
 
 ## How a round works
 
-1. `pickRandomLocation()` returns a city from `LOCATIONS` (no repeats per game).
-2. `findMapillaryImage(lat, lng, token)` queries Mapillary's Graph API for any
-   image inside a `SEARCH_DELTA_DEG` (~4–5 km) bbox around the city center.
-   Prefers `is_pano=true` images, falls back to flat ones.
-3. If nothing found, retry with another city up to `MAX_LOCATION_TRIES`.
-4. The actual photo's coords are stored in `state.actualPoint` — scoring
-   compares the user's guess against *the photo*, not the dataset entry's
-   center, since they may be a few hundred meters apart.
-5. The Mapillary viewer handles pan/zoom; blue arrows let the player walk
-   between connected images.
+1. **Prefetch on Start Game**: `primeRoundQueue()` kicks off all five rounds'
+   Mapillary lookups in parallel (`prepareRound()` × 5) and stores the
+   resulting Promises in `state.roundPromises`. Round transitions after the
+   first are instant because the lookup already completed in the background.
+2. `prepareRound(token)` calls `pickRandomLocation()` (no in-game repeats)
+   and `findMapillaryImage()`; on a miss it retries with a different
+   location up to `MAX_LOCATION_TRIES` times.
+3. `findMapillaryImage(lat, lng, token)` does **at most two** Graph API
+   calls: one with `is_pano=true`, then one without if the first was empty.
+   Each call has a `FETCH_TIMEOUT_MS` (5 s) abort so a slow Mapillary
+   response can't hang the prefetch forever.
+4. The actual photo's coords go into `state.actualPoint` — scoring compares
+   the guess against *the photo*, not the dataset entry's center, since
+   they may be a few hundred meters apart.
+5. `showImageInViewer()` either creates a fresh `mapillary.Viewer` or moves
+   the existing one. If `moveTo()` rejects, we tear the viewer down and
+   rebuild — without that fallback the user gets stuck on the previous
+   round's image.
+6. Mapillary's viewer draws blue arrows for connected images so the player
+   can walk between panoramas.
 
 ## Token resolution order (in `game.js`)
 
