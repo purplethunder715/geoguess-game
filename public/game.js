@@ -43,6 +43,10 @@ const state = {
   timeLeft: ROUND_SECONDS,
   timerEnabled: false,
   usedIndices: [],
+  // Promises for upcoming rounds, started in parallel at game start so the
+  // network roundtrip happens during the previous round, not at click time.
+  // roundPromises[i] resolves to {loc, image: {id, lat, lng}}.
+  roundPromises: [],
 };
 
 function showScreen(name) {
@@ -141,37 +145,68 @@ function showImageInViewer(imageId, token) {
   }
 }
 
-// Pick a location, find imagery, retry on misses. Sets state.currentLocation
-// and state.actualPoint to whatever we ended up showing the user.
-async function loadRandomRound() {
-  const token = resolveToken();
-  const status = document.getElementById('streetview-status');
-  status.classList.remove('hidden');
-  status.textContent = 'Looking for nearby imagery...';
-
-  for (let attempt = 1; attempt <= MAX_LOCATION_TRIES; attempt++) {
+// Resolve one round's data: pick a random location, find imagery, retry on
+// misses. Returns {loc, image} or throws if every retry came up empty.
+async function prepareRound(token) {
+  for (let attempt = 0; attempt < MAX_LOCATION_TRIES; attempt++) {
     const loc = pickRandomLocation();
-    status.textContent =
-      `Looking for nearby imagery... (try ${attempt}/${MAX_LOCATION_TRIES}: ${loc.name})`;
     try {
       const image = await findMapillaryImage(loc.lat, loc.lng, token);
-      if (!image) {
-        console.warn(`No Mapillary imagery near ${loc.name}, retrying...`);
-        continue;
-      }
-      state.currentLocation = loc;
-      // Use the actual photo coords for scoring — they may be a few hundred
-      // meters off the city center we queried with.
-      state.actualPoint = { lat: image.lat, lng: image.lng };
-      showImageInViewer(image.id, token);
-      status.classList.add('hidden');
-      return;
+      if (image) return { loc, image };
     } catch (err) {
-      console.error('Mapillary lookup failed:', err);
-      status.textContent = `Mapillary error: ${err.message}. Retrying...`;
+      console.warn(`Prefetch error at ${loc.name}:`, err);
     }
   }
-  status.textContent = 'Could not find Mapillary imagery — check your token / try again.';
+  throw new Error('No Mapillary imagery found after several tries');
+}
+
+// Kick off all upcoming rounds in parallel. Each entry is a Promise that
+// resolves to {loc, image}. If the game is still on round 1 by the time the
+// 5th prefetch finishes, the next-round transitions will be instant.
+function primeRoundQueue() {
+  const token = resolveToken();
+  state.roundPromises = [];
+  for (let i = 0; i < ROUNDS_PER_GAME; i++) {
+    state.roundPromises.push(prepareRound(token));
+  }
+}
+
+// Show the round whose data was prefetched. If the prefetch hasn't finished
+// yet (rare after round 1), show a brief "Loading..." overlay. If the
+// prefetch failed entirely, fire one fresh prepareRound() as a last resort.
+async function showPrefetchedRound() {
+  const status = document.getElementById('streetview-status');
+  const promise = state.roundPromises[state.round - 1];
+
+  // Only show the overlay if the prefetch hasn't resolved within 200ms —
+  // avoids a one-frame flash for the common case where the data is ready.
+  let overlayTimer = setTimeout(() => {
+    status.classList.remove('hidden');
+    status.textContent = 'Loading panorama...';
+  }, 200);
+
+  let result;
+  try {
+    result = await promise;
+  } catch (err) {
+    console.warn('Prefetched round failed; trying live lookup:', err);
+    try {
+      result = await prepareRound(resolveToken());
+    } catch (err2) {
+      clearTimeout(overlayTimer);
+      status.classList.remove('hidden');
+      status.textContent = `Could not load round: ${err2.message}`;
+      return;
+    }
+  }
+  clearTimeout(overlayTimer);
+  status.classList.add('hidden');
+
+  state.currentLocation = result.loc;
+  // Use the actual photo coords for scoring — they may be a few hundred
+  // meters off the city center we queried with.
+  state.actualPoint = { lat: result.image.lat, lng: result.image.lng };
+  showImageInViewer(result.image.id, resolveToken());
 }
 
 // --- Guess map -------------------------------------------------------------
@@ -191,7 +226,7 @@ function initGuessMap() {
     zoom: 1,
     worldCopyJump: true,
     minZoom: 1,
-    maxZoom: 12,
+    maxZoom: 18,        // Esri imagery supports up to 19; cap at 18 so labels still load
     attributionControl: false,
   });
   buildSatelliteLayers(state.guessMap);
@@ -258,7 +293,7 @@ async function startRound() {
   // containers to have non-zero size to render correctly.
   setTimeout(async () => {
     initGuessMap();
-    await loadRandomRound();
+    await showPrefetchedRound();
     startTimer();
   }, 50);
 }
@@ -332,6 +367,7 @@ function resetGame() {
   state.guessLatLng = null;
   state.guessMarker = null;
   state.usedIndices = [];
+  state.roundPromises = [];
 }
 
 // --- Start screen wiring (token + Start button) ----------------------------
@@ -364,6 +400,7 @@ startBtn.addEventListener('click', () => {
 
   state.timerEnabled = document.getElementById('timer-toggle').checked;
   resetGame();
+  primeRoundQueue();   // fire all 5 lookups now, in parallel
   startRound();
 });
 
