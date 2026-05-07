@@ -1,5 +1,7 @@
 # GeoGuess
 
+[![CI](https://github.com/purplethunder715/geoguess-game/actions/workflows/ci.yml/badge.svg)](https://github.com/purplethunder715/geoguess-game/actions/workflows/ci.yml)
+
 A small GeoGuessr-style web game. You're dropped into a 360° street-level
 panorama at a random city, you can pan, zoom, **and walk between connected
 images** via the blue navigation arrows. Then drop a pin on a satellite map
