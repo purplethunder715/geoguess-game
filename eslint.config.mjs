@@ -63,8 +63,11 @@ export default [
       globals: {
         L: 'readonly',
         mapillary: 'readonly',
+        Image: 'readonly',
         MAPILLARY_TOKEN: 'readonly',
         LOCATIONS: 'readonly',
+        CURATED_LOCATIONS: 'readonly',
+        REGIONS: 'readonly',
         haversineDistance: 'readonly',
         calculateScore: 'readonly',
         formatDistance: 'readonly',

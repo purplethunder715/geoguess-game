@@ -2,8 +2,22 @@
 // No Mapillary or Esri calls — these run before any "Start" click.
 const { test, expect } = require('@playwright/test');
 
+// public/config.js is gitignored and may hold a real token on a developer's
+// machine. For the "no preset token" tests we have to neuter it so the
+// start screen shows the input no matter who's running the suite.
+async function blockConfigJs(page) {
+  await page.route('**/config.js', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: 'const MAPILLARY_TOKEN = "";',
+    }),
+  );
+}
+
 test.describe('Start screen', () => {
   test('loads with title and disabled Start button', async ({ page }) => {
+    await blockConfigJs(page);
     await page.goto('/');
     await expect(page).toHaveTitle('GeoGuess');
     await expect(page.locator('h1').first()).toContainText('GeoGuess');
@@ -14,6 +28,7 @@ test.describe('Start screen', () => {
   });
 
   test('Start button enables once token has 10+ chars', async ({ page }) => {
+    await blockConfigJs(page);
     await page.goto('/');
     const input = page.locator('#api-key-input');
     const startBtn = page.locator('#start-btn');
@@ -36,6 +51,7 @@ test.describe('Start screen', () => {
   });
 
   test('typed token persists to localStorage on Start', async ({ page }) => {
+    await blockConfigJs(page);
     // Block Mapillary so Start doesn't actually try to fetch (we abort early).
     await page.route('**/graph.mapillary.com/**', (route) =>
       route.fulfill({

@@ -227,7 +227,10 @@ button.primary:disabled {
   bottom: 32px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 10;
+  /* Leaflet markers default to z-index ~600 and popups to ~700, so a
+     marker/popup near the bottom of the map could stack above z-index 10
+     and visually swallow the Next button. Push the card above all Leaflet UI. */
+  z-index: 1000;
 }
 
 /* Leaflet tweaks for dark theme */

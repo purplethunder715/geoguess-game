@@ -22,9 +22,14 @@ const SEARCH_DELTA_DEG = 0.04;
 // rather than letting the whole game hang.
 const FETCH_TIMEOUT_MS = 5000;
 
-// How many random locations to try before giving up (Mapillary coverage is
-// patchy so the first pick may have nothing).
-const MAX_LOCATION_TRIES = 6;
+// How many parallel location lookups to fire per prepareRound batch. First
+// one to succeed wins; the others are abandoned (their HTTP responses just
+// get dropped). Burns a few extra Mapillary requests per round in exchange
+// for much lower worst-case latency when one location has slow coverage.
+const PARALLEL_ATTEMPTS = 3;
+
+// How many of those parallel batches to retry sequentially before giving up.
+const MAX_BATCHES = 3;
 
 // Esri's free satellite tile layer + a labels overlay (looks like Google
 // satellite). No API key required; usage is permitted for non-commercial use.
@@ -47,10 +52,9 @@ const state = {
   timeLeft: ROUND_SECONDS,
   timerEnabled: false,
   usedIndices: [],
-  // Promises for upcoming rounds, started in parallel at game start so the
-  // network roundtrip happens during the previous round, not at click time.
-  // roundPromises[i] resolves to {loc, image: {id, lat, lng}}.
-  roundPromises: [],
+  // Race-based pool of prefetched rounds. take() returns whichever lookup
+  // resolves first, not whichever was queued first. See createRoundPool().
+  roundPool: null,
 };
 
 function showScreen(name) {
@@ -58,14 +62,32 @@ function showScreen(name) {
   SCREENS[name].classList.remove('hidden');
 }
 
-function pickRandomLocation() {
-  if (state.usedIndices.length >= LOCATIONS.length) state.usedIndices = [];
+// Probability of picking from the curated city list vs. a random point
+// inside a country bbox. Curated picks are reliable (recognizable name,
+// guaranteed Mapillary coverage); region picks add huge variety.
+const CURATED_PROBABILITY = 0.4;
+
+function pickFromCurated() {
+  if (state.usedIndices.length >= CURATED_LOCATIONS.length) state.usedIndices = [];
   let idx;
   do {
-    idx = Math.floor(Math.random() * LOCATIONS.length);
+    idx = Math.floor(Math.random() * CURATED_LOCATIONS.length);
   } while (state.usedIndices.includes(idx));
   state.usedIndices.push(idx);
-  return LOCATIONS[idx];
+  return CURATED_LOCATIONS[idx];
+}
+
+function pickFromRegions() {
+  const r = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+  return {
+    lat: r.latMin + Math.random() * (r.latMax - r.latMin),
+    lng: r.lngMin + Math.random() * (r.lngMax - r.lngMin),
+    name: `Somewhere in ${r.name}`,
+  };
+}
+
+function pickRandomLocation() {
+  return Math.random() < CURATED_PROBABILITY ? pickFromCurated() : pickFromRegions();
 }
 
 // --- Mapillary token resolution --------------------------------------------
@@ -93,7 +115,9 @@ async function mapillaryQuery(lat, lng, token, panoOnly) {
   // as a filter only.
   const params = new URLSearchParams({
     access_token: token,
-    fields: 'id,geometry,computed_geometry',
+    // Include thumb_1024_url so we can preload the image into browser cache
+    // and use it as a backdrop while the Mapillary viewer streams its tiles.
+    fields: 'id,geometry,computed_geometry,thumb_1024_url',
     bbox: bbox,
     limit: '30',
   });
@@ -116,14 +140,13 @@ async function mapillaryQuery(lat, lng, token, panoOnly) {
   }
 }
 
-// Find a Mapillary image near a lat/lng. One pano-only query, fall back to
-// any image type if nothing came back. Was previously up to six sequential
-// queries per location — one or two is plenty.
+// Find a true 360° panorama near a lat/lng. We deliberately do NOT fall
+// back to flat dashcam-style images — the player has to be able to look
+// around in 360°, and flat images would yield half a frozen photo. If
+// no panorama is here, return null and let the caller pick another spot.
 async function findMapillaryImage(lat, lng, token) {
   const panos = await mapillaryQuery(lat, lng, token, true);
   if (panos.length > 0) return pickAndExtractCoords(panos);
-  const any = await mapillaryQuery(lat, lng, token, false);
-  if (any.length > 0) return pickAndExtractCoords(any);
   return null;
 }
 
@@ -135,7 +158,15 @@ function pickAndExtractCoords(imgs) {
   const geom = img.geometry || img.computed_geometry;
   if (!geom || !geom.coordinates) return null;
   const [lng, lat] = geom.coordinates;
-  return { id: img.id, lat, lng };
+  return { id: img.id, lat, lng, thumbUrl: img.thumb_1024_url };
+}
+
+// Trigger a background image download so the browser caches it. Used to
+// preload Mapillary thumbnails ahead of time.
+function preloadImage(url) {
+  if (!url) return;
+  const img = new Image();
+  img.src = url;
 }
 
 // Set up (or move) the Mapillary viewer to a specific image ID. The viewer
@@ -170,41 +201,88 @@ function showImageInViewer(imageId, token) {
   });
 }
 
-// Resolve one round's data: pick a random location, find imagery, retry on
-// misses. Returns {loc, image} or throws if every retry came up empty.
+// One single attempt: pick a random location and look up imagery there.
+async function attemptOneLocation(token) {
+  const loc = pickRandomLocation();
+  const image = await findMapillaryImage(loc.lat, loc.lng, token);
+  if (!image) throw new Error(`No imagery near ${loc.name}`);
+  return { loc, image };
+}
+
+// Resolve one round's data. Fires PARALLEL_ATTEMPTS lookups simultaneously
+// and takes the first one that succeeds — drastically cuts worst-case
+// latency when one location has slow Mapillary coverage. Retries with
+// fresh batches up to MAX_BATCHES times.
 async function prepareRound(token) {
-  for (let attempt = 0; attempt < MAX_LOCATION_TRIES; attempt++) {
-    const loc = pickRandomLocation();
+  for (let batch = 0; batch < MAX_BATCHES; batch++) {
     try {
-      const image = await findMapillaryImage(loc.lat, loc.lng, token);
-      if (image) return { loc, image };
-    } catch (err) {
-      console.warn(`Prefetch error at ${loc.name}:`, err);
+      const result = await Promise.any(
+        Array.from({ length: PARALLEL_ATTEMPTS }, () => attemptOneLocation(token)),
+      );
+      // Warm the browser cache with the thumbnail; the panorama viewer
+      // tiles aren't the same URL but Mapillary's CDN connection gets reused.
+      preloadImage(result.image.thumbUrl);
+      return result;
+    } catch (aggregate) {
+      console.warn(`prepareRound batch ${batch + 1} all failed:`, aggregate);
     }
   }
-  throw new Error('No Mapillary imagery found after several tries');
+  throw new Error('No Mapillary imagery found after several batches');
 }
 
-// Kick off all upcoming rounds in parallel. Each entry is a Promise that
-// resolves to {loc, image}. If the game is still on round 1 by the time the
-// 5th prefetch finishes, the next-round transitions will be instant.
+// Race-based pool: round N takes whichever prefetch resolved first, NOT
+// whichever was queued first. Eliminates the case where round 1 waits for
+// a slow lookup while later prefetches already finished.
+function createRoundPool() {
+  const pending = new Set();
+  const ready = [];
+
+  return {
+    add(promise) {
+      pending.add(promise);
+      promise.then(
+        (result) => {
+          ready.push(result);
+          pending.delete(promise);
+        },
+        (err) => {
+          console.warn('Pool task rejected:', err);
+          pending.delete(promise);
+        },
+      );
+    },
+    async take() {
+      // Spin until something is ready (or pool is fully drained).
+      while (true) {
+        if (ready.length > 0) return ready.shift();
+        if (pending.size === 0) throw new Error('Round pool exhausted');
+        // Wait for ANY pending to settle. Catch each so one rejection
+        // doesn't reject the whole race; we'll loop and re-check `ready`.
+        await Promise.race([...pending].map((p) => p.catch(() => null)));
+      }
+    },
+    sizes() {
+      return { ready: ready.length, pending: pending.size };
+    },
+  };
+}
+
+// Kick off all upcoming rounds in parallel. Round transitions after the
+// first should be instant because their lookups overlap with whatever
+// round the user is currently playing.
 function primeRoundQueue() {
   const token = resolveToken();
-  state.roundPromises = [];
+  state.roundPool = createRoundPool();
   for (let i = 0; i < ROUNDS_PER_GAME; i++) {
-    state.roundPromises.push(prepareRound(token));
+    state.roundPool.add(prepareRound(token));
   }
 }
 
-// Show the round whose data was prefetched. If the prefetch hasn't finished
-// yet (rare after round 1), show a brief "Loading..." overlay. If the
-// prefetch failed entirely, fire one fresh prepareRound() as a last resort.
+// Pull whichever prefetched round is ready first. Shows a brief overlay
+// only if no round is ready inside 200 ms (avoids a one-frame flash).
 async function showPrefetchedRound() {
   const status = document.getElementById('streetview-status');
-  const promise = state.roundPromises[state.round - 1];
 
-  // Only show the overlay if the prefetch hasn't resolved within 200ms —
-  // avoids a one-frame flash for the common case where the data is ready.
   let overlayTimer = setTimeout(() => {
     status.classList.remove('hidden');
     status.textContent = 'Loading panorama...';
@@ -212,9 +290,10 @@ async function showPrefetchedRound() {
 
   let result;
   try {
-    result = await promise;
+    result = await state.roundPool.take();
   } catch (err) {
-    console.warn('Prefetched round failed; trying live lookup:', err);
+    // Pool was empty AND every pending task failed. Last-ditch live lookup.
+    console.warn('Round pool drained; running live prepareRound:', err);
     try {
       result = await prepareRound(resolveToken());
     } catch (err2) {
@@ -401,7 +480,7 @@ function resetGame() {
   state.guessLatLng = null;
   state.guessMarker = null;
   state.usedIndices = [];
-  state.roundPromises = [];
+  state.roundPool = null;
 }
 
 // --- Start screen wiring (token + Start button) ----------------------------
