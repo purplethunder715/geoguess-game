@@ -14,13 +14,21 @@ async function mockExternalsAndStubViewer(page) {
   await page.route('**/server.arcgisonline.com/**', (route) =>
     route.fulfill({ status: 200, body: '' }),
   );
-  // Mock Mapillary Graph API: any bbox query returns one fake pano at Paris.
+  // Mock Mapillary Graph API: return ≥4 panos in the same `sequence`,
+  // matching the production filter that requires walkable sequences (so the
+  // user gets ≥3 navigation arrows). Same coords for all — coords don't
+  // matter to scoring here, only that the round actually advances.
   await page.route('**/graph.mapillary.com/**', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        data: [{ id: 'mock-image-id', geometry: { coordinates: PARIS } }],
+        data: [
+          { id: 'mock-1', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+          { id: 'mock-2', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+          { id: 'mock-3', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+          { id: 'mock-4', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+        ],
       }),
     }),
   );

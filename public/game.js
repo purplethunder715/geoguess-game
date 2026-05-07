@@ -29,7 +29,12 @@ const FETCH_TIMEOUT_MS = 5000;
 const PARALLEL_ATTEMPTS = 3;
 
 // How many of those parallel batches to retry sequentially before giving up.
-const MAX_BATCHES = 3;
+const MAX_BATCHES = 4;
+
+// We only accept a panorama if its sequence has at least this many panos
+// inside the bbox — that guarantees the player can press the navigation
+// arrow ~3 times before running out. Single isolated panos are rejected.
+const MIN_SEQUENCE_SIZE = 4;
 
 // Esri's free satellite tile layer + a labels overlay (looks like Google
 // satellite). No API key required; usage is permitted for non-commercial use.
@@ -115,11 +120,14 @@ async function mapillaryQuery(lat, lng, token, panoOnly) {
   // as a filter only.
   const params = new URLSearchParams({
     access_token: token,
-    // Include thumb_1024_url so we can preload the image into browser cache
-    // and use it as a backdrop while the Mapillary viewer streams its tiles.
-    fields: 'id,geometry,computed_geometry,thumb_1024_url',
+    // - thumb_1024_url: preloaded into browser cache for warm CDN connection
+    // - sequence: lets us require multiple panos in the same sequence so
+    //   the player has at least a few navigation arrows to walk down.
+    fields: 'id,geometry,computed_geometry,thumb_1024_url,sequence',
     bbox: bbox,
-    limit: '30',
+    // Bumped from 30 to 50 — we now group by sequence and need enough
+    // imagery in the bbox for ≥4 to share a sequence ID.
+    limit: '50',
   });
   if (panoOnly) params.set('is_pano', 'true');
 
@@ -150,11 +158,26 @@ async function findMapillaryImage(lat, lng, token) {
   return null;
 }
 
-// Pull a random image from the result and extract its coords. Mapillary
-// sometimes omits one of the geometry fields, so prefer `geometry` and fall
-// back to `computed_geometry`.
+// Pick a panorama from the result that the player can actually walk down.
+// We group images by sequence ID and only consider sequences with enough
+// panos in the bbox to support ≥3 navigation steps. Returns null if no
+// such walkable sequence exists — caller picks a different location.
 function pickAndExtractCoords(imgs) {
-  const img = imgs[Math.floor(Math.random() * imgs.length)];
+  const bySeq = new Map();
+  for (const img of imgs) {
+    const seq = img.sequence;
+    if (!seq) continue; // images without a sequence ID are isolated
+    const arr = bySeq.get(seq) || [];
+    arr.push(img);
+    bySeq.set(seq, arr);
+  }
+  const walkable = [...bySeq.values()].filter((s) => s.length >= MIN_SEQUENCE_SIZE);
+  if (walkable.length === 0) return null;
+
+  const seqImgs = walkable[Math.floor(Math.random() * walkable.length)];
+  const img = seqImgs[Math.floor(Math.random() * seqImgs.length)];
+  // Mapillary sometimes omits one of the geometry fields — prefer `geometry`,
+  // fall back to `computed_geometry`.
   const geom = img.geometry || img.computed_geometry;
   if (!geom || !geom.coordinates) return null;
   const [lng, lat] = geom.coordinates;
