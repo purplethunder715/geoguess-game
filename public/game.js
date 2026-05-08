@@ -807,6 +807,28 @@ function stopTimer() {
 
 // --- Round lifecycle -------------------------------------------------------
 
+// Wait until the named element has non-zero offsetWidth/offsetHeight, then
+// run `cb`. Polls via requestAnimationFrame up to `maxFrames` times before
+// giving up and running `cb` anyway. Replaces the brittle setTimeout(50)
+// we used to guess "layout has probably finished by now" — on slow CI
+// runners 50 ms wasn't enough and Leaflet would cache 0x0 click bounds.
+function whenContainerSized(elementId, cb, maxFrames = 60) {
+  const el = document.getElementById(elementId);
+  if (!el) {
+    cb();
+    return;
+  }
+  if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+    cb();
+    return;
+  }
+  if (maxFrames <= 0) {
+    cb();
+    return;
+  }
+  requestAnimationFrame(() => whenContainerSized(elementId, cb, maxFrames - 1));
+}
+
 async function startRound() {
   state.round++;
   document.getElementById('round-num').textContent = state.round;
@@ -824,21 +846,23 @@ async function startRound() {
     document.getElementById('demo-hint').textContent = demo.hint;
     state.currentLocation = demo;
     state.actualPoint = { lat: demo.lat, lng: demo.lng };
-    setTimeout(() => {
+    whenContainerSized('guess-map', () => {
       initGuessMap();
       startTimer();
-    }, 50);
+    });
     return;
   }
 
   placeholder.classList.add('hidden');
-  // Defer until after layout — Leaflet and Mapillary both need their
-  // containers to have non-zero size to render correctly.
-  setTimeout(async () => {
+  // Wait for the guess-map container to have layout dimensions before
+  // initializing Leaflet — without this, on slow runners the click
+  // hit-test cache is set against a 0x0 bounds and pin drops silently
+  // miss until a resize event fires.
+  whenContainerSized('guess-map', async () => {
     initGuessMap();
     await showPrefetchedRound();
     startTimer();
-  }, 50);
+  });
 }
 
 function submitGuess(timedOut = false) {
