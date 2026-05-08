@@ -1,9 +1,6 @@
 node_modules/
 package-lock.json
 
-# Holds a personal Mapillary token — gitignored.
-public/config.js
-
 # Curated dataset; the aligned columns are intentional and trailing-zero
 # stripping (40.7580 -> 40.758) is unwanted.
 public/locations.js

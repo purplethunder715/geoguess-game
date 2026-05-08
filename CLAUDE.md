@@ -218,7 +218,7 @@ Playwright + Chromium. Server is auto-started via `webServer` config; pre-existi
 
 - [eslint.config.mjs](eslint.config.mjs) — flat config, browser globals for `public/`, node globals for `server.js`/`tests/`. Per-file globals match the script-load layout (`game.js` consumes globals defined by `lib.js` / `locations.js` / `config.js`).
 - [.prettierrc.json](.prettierrc.json) — single quotes, semis, 2-space, trailing commas, 90-char width
-- [.prettierignore](.prettierignore) — excludes `node_modules/`, `package-lock.json`, `public/config.js` (gitignored), `public/locations.js` (alignment is intentional)
+- [.prettierignore](.prettierignore) — excludes `node_modules/`, `package-lock.json`, `public/locations.js` (alignment is intentional)
 - [playwright.config.mjs](playwright.config.mjs) — chromium-only e2e runner; auto-starts/reuses `npm start` on port 3000
 
 ## Mocking external APIs in e2e
@@ -278,7 +278,7 @@ Future per-user auth (eventually) will populate the token via login, replacing t
 
 In `resolveToken()`:
 
-1. `MAPILLARY_TOKEN` global from [public/config.js](public/config.js) (preferred — auto path; gitignored).
+1. `MAPILLARY_TOKEN` global from [public/config.js](public/config.js) (the demo path — base64-decoded at load time so anyone running the code gets real panoramas).
 2. `localStorage["geoguess.mapillaryToken"]` — populated by typing into the start screen.
 3. Input field on the start screen (saved to localStorage on first start).
 
@@ -286,15 +286,23 @@ If 1 or 2 returns a token, the start-screen input is hidden so the flow is just 
 
 ## Secrets — `public/config.js`
 
-[public/config.js](public/config.js) holds a personal Mapillary access token. It is in [.gitignore](.gitignore) and **must stay out of every commit, push, PR, gist, paste, or upload** unless the user has _explicitly_ said "yes, include the token". The default answer is always _don't include it_.
+**[public/config.js](public/config.js) IS committed and IS public** — that's intentional, decided 2026-05-08. It holds the Mapillary token used by the demo path so anyone running the code (cloned repo, deployed instance) sees real panoramas without having to sign up for their own token.
 
-Before any push or share:
+The token is **base64-encoded** in source as a thin defense against automated secret-scanner bots that grep public repos for the literal `MLY|` prefix. It is **not** actually private — anyone with DevTools open sees it in every Mapillary URL the moment a panorama loads. Do not treat the encoding as security.
 
-- Confirm: `git check-ignore public/config.js`
-- If somehow staged or committed: stop and tell the user _before_ pushing — do not silently push secrets.
-- For teammates: suggest committing a `public/config.example.js` with an empty token; don't bake the real one into shared code.
+What actually protects the token from abuse:
 
-Sharing a token with Claude in chat ≠ sharing publicly. The rule still applies.
+1. **Mapillary domain restrictions** (set on the dashboard side, when/if we deploy to a stable domain).
+2. **Quota monitoring** — abuse shows up on the Mapillary developer dashboard.
+3. **Easy rotation** — generate a new token at <https://www.mapillary.com/dashboard/developers>, replace the base64 string in `config.js`, push.
+
+The **Google Maps key** is NOT bundled here. It stays per-user via the in-app settings panel + localStorage so each player's Google usage bills against their own account.
+
+When working on `config.js`:
+
+- The base64 encoding step is a one-time operation: `node -e "console.log(Buffer.from('MLY|...').toString('base64'))"`.
+- Don't `console.log` the decoded token — keeps it out of casual screen-shares.
+- If you replace the token with a fresh one (post-rotation), encode the new one the same way and update the comment dated above.
 
 ## Common pitfalls
 

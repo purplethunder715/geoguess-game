@@ -8,6 +8,8 @@ const browserGlobals = {
   URL: 'readonly',
   URLSearchParams: 'readonly',
   AbortController: 'readonly',
+  atob: 'readonly',
+  btoa: 'readonly',
   setTimeout: 'readonly',
   setInterval: 'readonly',
   clearTimeout: 'readonly',

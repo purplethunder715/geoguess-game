@@ -66,6 +66,10 @@ test.describe('Start screen', () => {
   test('preset token pre-fills the Settings input and gives "Start Game" label', async ({
     page,
   }) => {
+    // The committed config.js holds a real demo token; for "what does
+    // localStorage do" coverage we have to neuter it so the resolveToken
+    // priority order falls through to localStorage.
+    await blockConfigJs(page);
     await page.addInitScript(() => {
       localStorage.setItem('geoguess.mapillaryToken', 'MLY|preset-token-here');
     });
@@ -230,8 +234,16 @@ test.describe('Guest mode', () => {
       expect(hint && hint.length).toBeGreaterThan(0);
       hints.push(hint);
 
+      // Wait for the round's guess map to be wired up — startRound defers
+      // initGuessMap via setTimeout(50), and clicking #guess-map before
+      // Leaflet's click handler is attached silently no-ops the pin drop.
+      // The "Place a pin to guess" text is set inside initGuessMap, so
+      // asserting it forces the test to sync with that timeout.
+      await expect(page.locator('#guess-btn')).toHaveText('Place a pin to guess');
+
       // Drop pin → Submit → result screen
       await page.locator('#guess-map').click({ position: { x: 80, y: 80 } });
+      await expect(page.locator('#guess-btn')).toBeEnabled();
       await page.locator('#guess-btn').click();
       await expect(page.locator('#result-screen')).toBeVisible();
 
