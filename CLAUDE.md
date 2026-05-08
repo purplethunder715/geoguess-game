@@ -96,27 +96,38 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 - `ROUNDS_PER_GAME`, `ROUND_SECONDS`, `TOKEN_STORAGE` — round / timer / storage-key constants
 - `SEARCH_DELTA_DEG` — fixed 0.04° (~4 km) bbox half-size for Mapillary lookups
 - `FETCH_TIMEOUT_MS` — 5 s per-fetch AbortController timeout
-- `MAX_LOCATION_TRIES` — city-retry budget when Mapillary returns nothing
+- `PARALLEL_ATTEMPTS` (3), `POOL_BUFFER` (3) — prefetch concurrency knobs. **Read the "Hard-learned tuning constraint" architecture paragraph before changing — Mapillary's free-tier rate limit, not the user's machine, is the bottleneck**
+- `MAX_CONSECUTIVE_HTTP_BATCHES` (20) — abort threshold; coverage misses reset, only HTTP / network failures count
+- `BACKOFF_BASE_MS` (1500), `BACKOFF_MAX_MS` (30000) — exponential backoff between HTTP-failure batches
+- `MIN_SEQUENCE_SIZE` (4) — minimum panos-per-sequence for the "walkable" check (≥3 navigation arrows)
+- `CURATED_PROBABILITY` (0.4) — chance of picking from `CURATED_LOCATIONS` vs. region-random
 - `SATELLITE_TILES`, `LABELS_TILES` — Esri tile URL templates
-- `state` — global game state (round, score, viewer, both maps, prefetch promises, used-indices)
+- `state` — global game state (round, score, viewer, both maps, `roundPool`, `usedIndices`, `gameRunning` kill switch)
 - `showScreen(name)` — swap visible screen
-- `pickRandomLocation()` — no-repeat picker via `state.usedIndices`
+- `pickFromCurated()` — pick from `CURATED_LOCATIONS` with no-repeat tracking via `state.usedIndices`
+- `pickFromRegions()` — generate a random `{ lat, lng, name: "Somewhere in <country>" }` inside a `REGIONS` bbox
+- `pickRandomLocation()` — router: rolls `CURATED_PROBABILITY` and dispatches to one of the above
 - `startRound()` — increments round, defers map init via `setTimeout(..., 50)`
 - `submitGuess(timedOut)` — Haversine + score, drives result screen
 - `showResult(distance, points, timedOut)` — markers, dashed line, `fitBounds`
-- `endGame()` — final score + rating bucket
-- `resetGame()` — clears state for "Play Again"
+- `endGame()` — flips `gameRunning` off (background prefetch loops bail), shows final score + rating bucket
+- `resetGame()` — flips `gameRunning` off **before** clearing state, so in-flight `prepareRound` loops exit on their next iteration
 
 ### Mapillary integration — [public/game.js](public/game.js)
 
 - `resolveToken()` — config.js → localStorage → input
-- `mapillaryQuery(lat, lng, token, panoOnly)` — single Graph API call with AbortController timeout
-- `findMapillaryImage(lat, lng, token)` — pano-only query, falls back to any-image if empty (≤2 calls total)
-- `pickAndExtractCoords(imgs)` — random pick + `geometry`/`computed_geometry` extraction
+- `mapillaryQuery(lat, lng, token, panoOnly)` — single Graph API call with AbortController timeout. Requests `id, geometry, computed_geometry, thumb_1024_url, sequence`; `limit=50` to leave headroom for the sequence-grouping filter
+- `findMapillaryImage(lat, lng, token)` — pano-only query, **no flat-image fallback** (deliberate: flat dashcam frames make a frozen-photo round). Returns `null` if no walkable sequence here, letting the caller pick a different spot
+- `pickAndExtractCoords(imgs)` — groups by `sequence`, keeps only sequences with `≥MIN_SEQUENCE_SIZE` panos in the bbox, picks a random pano from a random walkable sequence. Returns `{ id, lat, lng, thumbUrl }` or `null`
+- `preloadImage(url)` — fires-and-forgets a background `new Image()` load to warm the browser cache before the viewer renders
 - `showImageInViewer(imageId, token)` — creates a fresh viewer or `moveTo()`; on `moveTo` rejection, tears the viewer down and rebuilds via the inner `create()` closure
-- `prepareRound(token)` — one round's lookup + city-retry loop (up to `MAX_LOCATION_TRIES`)
-- `primeRoundQueue()` — fires all 5 lookups in parallel at game start
-- `showPrefetchedRound()` — consumes prefetch, 200ms-debounced loading overlay, live-fallback on prefetch error
+- `attemptOneLocation(token)` — one location pick + `findMapillaryImage`; throws `"No imagery near <name>"` on coverage miss
+- `isHttpFailure(err)` — classifies an error as HTTP/network (true: counts toward abort threshold) vs. coverage miss (false: doesn't count)
+- `prepareRound(token)` — **infinite loop**: `Promise.any` over `PARALLEL_ATTEMPTS` parallel `attemptOneLocation`s. All-HTTP-failure batch → increment counter + exponential backoff; mixed batch (any coverage miss) → counter resets, immediate retry. Throws `"Mapillary API appears unreachable"` only after `MAX_CONSECUTIVE_HTTP_BATCHES` consecutive HTTP-only batches; throws `"Game ended"` if `state.gameRunning` flips false
+- `createRoundPool(onSettled)` — race-based pool: `add(promise)` enqueues; `take()` returns the first-_resolved_ (not first-queued); `onSettled` fires after every task settle so the caller can top off. Eliminates "round 1 waits on a slow lookup while later prefetches already finished"
+- `ensurePoolFull()` — keeps `(rounds remaining) + POOL_BUFFER` lookups in flight or ready. Called at game start, after every round consumed, and after every pool task settles
+- `primeRoundQueue()` — flips `gameRunning` on, builds the pool, kicks off the initial `ensurePoolFull`
+- `showPrefetchedRound()` — `await state.roundPool.take()`; 200 ms-debounced "Loading panorama..." overlay; calls `ensurePoolFull()` after consume to keep search density high. Only error path is "Mapillary unreachable" (shows rate-limit message + token suggestion)
 
 ### Maps (Leaflet) — [public/game.js](public/game.js)
 
@@ -149,7 +160,9 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 
 ### Location dataset — [public/locations.js](public/locations.js)
 
-- `LOCATIONS` — flat array of `{ lat, lng, name }` for major cities with known Mapillary coverage
+- `CURATED_LOCATIONS` — hand-picked cities with strong Mapillary coverage; entries are `{ lat, lng, name: 'City, Country' }`. Recognizable names show on the result screen
+- `REGIONS` — country-level bounding boxes; entries are `{ name, latMin, latMax, lngMin, lngMax }`. `pickFromRegions` samples uniformly inside; effectively unlimited variety
+- `LOCATIONS = CURATED_LOCATIONS` — backwards-compat alias still consumed by [tests/test.js](tests/test.js) via the `new Function` shim
 - **Excluded from Prettier** ([.prettierignore](.prettierignore)) — the aligned columns are intentional and trailing-zero stripping (`40.7580` → `40.758`) is unwanted
 
 ### Markup — [public/index.html](public/index.html)
@@ -223,7 +236,9 @@ When adding new e2e tests, prefer reusing the helper. If you need a different mo
 
 ## Adding more locations
 
-Append `{ lat, lng, name }` to [public/locations.js](public/locations.js). No heading needed — Mapillary picks the panorama and orientation. Pick spots in cities/regions with known Mapillary coverage (most major cities NA/EU/JP/AU; sparser elsewhere). Tight rural locations cause more city-retry loops. Tests check lat/lng ranges and coord uniqueness.
+**A curated city**: append `{ lat, lng, name: 'City, Country' }` to `CURATED_LOCATIONS` in [public/locations.js](public/locations.js). Pick spots with known Mapillary coverage (major cities NA/EU/JP/AU are reliable; sparser elsewhere). Tests check lat/lng ranges and coord uniqueness against the `LOCATIONS` alias.
+
+**A new region** (country bbox): append `{ name, latMin, latMax, lngMin, lngMax }` to `REGIONS`. Keep the bbox to land area only — `pickFromRegions` samples uniformly inside, so all-water or pure-desert bboxes burn batch attempts on guaranteed coverage misses (the infinite-retry loop handles this gracefully but it wastes API calls).
 
 ## Token resolution order
 
@@ -251,11 +266,11 @@ Sharing a token with Claude in chat ≠ sharing publicly. The rule still applies
 
 - **Script load order** in [public/index.html](public/index.html) is meaningful: `leaflet → mapillary → config → lib → locations → game`. Globals from earlier files are available in later ones; don't reorder casually.
 - **Mapillary `moveTo()` rejections** are now caught and trigger a viewer rebuild in `showImageInViewer`. If a round still looks frozen, check the console for repeated rebuild warnings — that suggests a deeper problem (e.g. stale image IDs from a long-pending prefetch).
-- **Mapillary coverage is patchier than Google Street View.** The retry loop in `prepareRound` exists because some city centers have no panoramas inside the bbox. New tight rural locations → more retries.
+- **Mapillary coverage is patchier than Google Street View.** `prepareRound`'s infinite parallel-attempts loop exists because rural / region-random picks often come back empty — coverage misses don't surface as errors, just as another retry batch. Tight rural curated entries amplify this; prefer urban centers.
 - **Esri tile order matters.** Labels overlay must be added _after_ imagery in `buildSatelliteLayers` or labels disappear behind imagery. If satellite goes blank, Esri may have rate-limited briefly.
 - **Hover-to-expand map** needs `invalidateSize` on `transitionend` (in `initGuessMap`). Leaflet doesn't auto-detect container resize; without this the expanded half renders grey.
 - **Bbox API rejects too-large queries.** `SEARCH_DELTA_DEG` is 0.04° as a balance: wide enough to find coverage in most cities, tight enough that Mapillary doesn't return "reduce the amount of data" in dense downtowns. If you increase it, expect the error in places like central Tokyo or Manhattan.
-- **Slow Mapillary responses** would otherwise hang the entire prefetch — the `FETCH_TIMEOUT_MS` (5 s) abort + `prepareRound` retry loop ensures one slow city doesn't block the game.
+- **Slow Mapillary responses** would otherwise hang the prefetch — the `FETCH_TIMEOUT_MS` (5 s) abort + parallel-attempts loop ensure one slow city doesn't block the game. Sustained slow responses still trip `MAX_CONSECUTIVE_HTTP_BATCHES` (20) via `AbortError` (which `isHttpFailure` counts), surfacing the rate-limit message; that's the intended behavior.
 
 ## What this project is _not_
 
