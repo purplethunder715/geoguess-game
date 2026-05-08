@@ -1,5 +1,10 @@
 node_modules/
 
+# Per-user local secrets (Brady's own Google Maps API key, etc.).
+# DO NOT COMMIT — each developer has their own. Format documented in
+# CLAUDE.md Secrets section.
+public/config.local.js
+
 # Playwright artifacts (per-run reports, traces, browser cache)
 test-results/
 playwright-report/

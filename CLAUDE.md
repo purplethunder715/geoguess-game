@@ -298,7 +298,12 @@ What actually protects the token from abuse:
 2. **Quota monitoring** — abuse shows up on the Mapillary developer dashboard.
 3. **Easy rotation** — generate a new token at <https://www.mapillary.com/dashboard/developers>, replace the base64 string in `config.js`, push.
 
-The **Google Maps key** is NOT bundled here. It stays per-user via the in-app settings panel + localStorage so each player's Google usage bills against their own account.
+The **Google Maps key** is NOT bundled in `config.js`. There are two ways to set one:
+
+1. **`public/config.local.js`** — gitignored per-developer file holding `const GOOGLE_MAPS_API_KEY = 'AIza...'`. Loaded by `index.html` via a `<script src="config.local.js" onerror="this.remove()">` tag so it's optional — repos that don't have it (visitors, CI) just get a silent 404 and fall through. This is Brady's path; he doesn't want to re-paste his key into the settings panel every visit.
+2. **In-app settings panel** — typed into the Google key input, stored in `localStorage["geoguess.googleMapsApiKey"]`. Used by anyone running a clone who doesn't want to make a `config.local.js`.
+
+`resolveGoogleKey()` checks #1 first then #2; either is accepted. **`public/config.local.js` is in `.gitignore` and must NEVER be committed** — it bills against the running user's own Cloud account, so leaking it means strangers spending their money.
 
 When working on `config.js`:
 

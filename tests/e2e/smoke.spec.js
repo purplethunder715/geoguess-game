@@ -13,6 +13,15 @@ async function blockConfigJs(page) {
       body: 'const MAPILLARY_TOKEN = "";',
     }),
   );
+  // Also neuter the gitignored per-user file so a dev's real Google key
+  // doesn't accidentally route smoke-test rounds through the Google path.
+  await page.route('**/config.local.js', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: 'const GOOGLE_MAPS_API_KEY = "";',
+    }),
+  );
 }
 
 test.describe('Start screen', () => {

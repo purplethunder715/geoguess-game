@@ -17,7 +17,7 @@
 // (entered via the in-app settings panel and stored in localStorage), so
 // each player's usage stays on their own billing.
 //
-// eslint-disable-next-line no-unused-vars  (consumed by game.js as a global)
+// eslint-disable-next-line no-unused-vars -- consumed by game.js as a global
 const MAPILLARY_TOKEN = atob(
   'TUxZfDM1NDc0MDkyMDA1NTcwODcyfGRiOGVhMWZhMDlkZDQzY2RmZDgwY2FlNmNkNTYyMmZj',
 );

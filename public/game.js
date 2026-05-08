@@ -189,6 +189,14 @@ function resolveToken() {
 // --- Google Maps lazy-loader + Street View lookup --------------------------
 
 function resolveGoogleKey() {
+  // Priority order:
+  //   1. GOOGLE_MAPS_API_KEY global from public/config.local.js (gitignored,
+  //      per-developer convenience so Brady doesn't have to re-paste).
+  //   2. localStorage entry (set via the in-app settings panel).
+  // Returns '' when neither is set; the caller short-circuits to Mapillary.
+  if (typeof GOOGLE_MAPS_API_KEY === 'string' && GOOGLE_MAPS_API_KEY.trim()) {
+    return GOOGLE_MAPS_API_KEY.trim();
+  }
   return (localStorage.getItem(GOOGLE_KEY_STORAGE) || '').trim();
 }
 

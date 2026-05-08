@@ -35,7 +35,7 @@ const nodeGlobals = {
 
 export default [
   {
-    ignores: ['node_modules/**', 'public/config.js', 'package-lock.json'],
+    ignores: ['node_modules/**', 'public/config.local.js', 'package-lock.json'],
   },
   js.configs.recommended,
   {
@@ -70,6 +70,7 @@ export default [
         google: 'readonly',
         Image: 'readonly',
         MAPILLARY_TOKEN: 'readonly',
+        GOOGLE_MAPS_API_KEY: 'readonly',
         LOCATIONS: 'readonly',
         CURATED_LOCATIONS: 'readonly',
         REGIONS: 'readonly',

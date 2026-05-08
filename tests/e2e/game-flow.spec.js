@@ -14,6 +14,17 @@ async function mockExternalsAndStubViewer(page) {
   await page.route('**/server.arcgisonline.com/**', (route) =>
     route.fulfill({ status: 200, body: '' }),
   );
+  // Neuter public/config.local.js: on the dev's machine it sets a real
+  // GOOGLE_MAPS_API_KEY, which would route the test through the Google
+  // Street View path. We don't mock google.maps here, so let the test
+  // stay on the Mapillary path by stubbing the file empty.
+  await page.route('**/config.local.js', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: 'const GOOGLE_MAPS_API_KEY = "";',
+    }),
+  );
   // Mock Mapillary Graph API: return ≥4 panos in the same `sequence`,
   // matching the production filter that requires walkable sequences (so the
   // user gets ≥3 navigation arrows). Same coords for all — coords don't

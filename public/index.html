@@ -157,6 +157,10 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"></script>
     <script src="config.js"></script>
+    <!-- Per-user local config (gitignored). Loads if it exists; the 404
+         on cloned repos that don't have it is harmless — game.js uses
+         `typeof GOOGLE_MAPS_API_KEY === 'string'` to no-op when missing. -->
+    <script src="config.local.js" onerror="this.remove()"></script>
     <script src="lib.js"></script>
     <script src="locations.js"></script>
     <script src="game.js"></script>
