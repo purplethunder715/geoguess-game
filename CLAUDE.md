@@ -102,10 +102,11 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 - `MAX_CONSECUTIVE_HTTP_BATCHES` (20) — abort threshold; coverage misses reset, only HTTP / network failures count
 - `BACKOFF_BASE_MS` (1500), `BACKOFF_MAX_MS` (30000) — exponential backoff between HTTP-failure batches
 - `MIN_SEQUENCE_SIZE` (4) — minimum panos-per-sequence for the "walkable" check (≥3 navigation arrows)
+- `GOOGLE_KEY_STORAGE` (`'geoguess.googleMapsApiKey'`), `GOOGLE_SEARCH_RADIUS_M` (4000) — localStorage key + radius (meters) for the Google Street View primary path
 - `DEMO_ROUNDS` — 5 hardcoded `{ lat, lng, name, hint }` famous-landmark entries used by guest/demo mode in lieu of real Mapillary data; powers the full gameplay flow without API calls. Hints are evocative but **must not contain the city or country name** — that would defeat the guessing
 - `CURATED_PROBABILITY` (0.4) — chance of picking from `CURATED_LOCATIONS` vs. region-random
 - `SATELLITE_TILES`, `LABELS_TILES` — Esri tile URL templates
-- `state` — global game state (round, score, viewer, both maps, `roundPool`, `usedIndices`, `gameRunning` kill switch, `guestMode` flag)
+- `state` — global game state (round, score, viewer, both maps, `roundPool`, `usedIndices`, `gameRunning` kill switch, `guestMode` flag, `viewerSource` (`'google'` | `'mapillary'` | `null`) tracking which provider built the current viewer)
 - `showScreen(name)` — swap visible screen
 - `pickFromCurated()` — pick from `CURATED_LOCATIONS` with no-repeat tracking via `state.usedIndices`
 - `pickFromRegions()` — generate a random `{ lat, lng, name: "Somewhere in <country>" }` inside a `REGIONS` bbox
@@ -123,14 +124,25 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 - `findMapillaryImage(lat, lng, token)` — pano-only query, **no flat-image fallback** (deliberate: flat dashcam frames make a frozen-photo round). Returns `null` if no walkable sequence here, letting the caller pick a different spot
 - `pickAndExtractCoords(imgs)` — groups by `sequence`, keeps only sequences with `≥MIN_SEQUENCE_SIZE` panos in the bbox, picks a random pano from a random walkable sequence. Returns `{ id, lat, lng, thumbUrl }` or `null`
 - `preloadImage(url)` — fires-and-forgets a background `new Image()` load to warm the browser cache before the viewer renders
-- `showImageInViewer(imageId, token)` — creates a fresh viewer or `moveTo()`; on `moveTo` rejection, tears the viewer down and rebuilds via the inner `create()` closure
-- `attemptOneLocation(token)` — one location pick + `findMapillaryImage`; throws `"No imagery near <name>"` on coverage miss
-- `isHttpFailure(err)` — classifies an error as HTTP/network (true: counts toward abort threshold) vs. coverage miss (false: doesn't count)
+- `showImageInViewer(image, source, mapillaryToken)` — **dispatcher**: calls `teardownViewer()` if `state.viewerSource` flips between rounds (Google's `StreetViewPanorama` and Mapillary's `Viewer` can't share the same DOM container), then routes to `showGoogleViewer` or `showMapillaryViewer` based on `source`
+- `teardownViewer()` — Mapillary path uses `state.viewer.remove()`; Google path clears the container's `innerHTML` (StreetViewPanorama has no destroy method)
+- `showMapillaryViewer(image, token)` — Mapillary-specific: creates a fresh `mapillary.Viewer` or `moveTo()`; on `moveTo` rejection, rebuilds via the inner `create()` closure
+- `attemptOneLocation(mapillaryToken)` — picks a location, tries Google Street View first if `resolveGoogleKey()` returns a key, falls through to Mapillary on coverage miss. Returns `{ loc, image, source: 'google' | 'mapillary' }`. Real Google API errors are **not caught** — they propagate as `Google API: <STATUS>` and `prepareRound` counts them as HTTP failures
+- `isHttpFailure(err)` — classifies an error as HTTP/network (true: counts toward abort threshold) vs. coverage miss (false: doesn't count). Matches `Mapillary HTTP`, `Mapillary API`, `Google API`, and `AbortError`
 - `prepareRound(token)` — **infinite loop**: `Promise.any` over `PARALLEL_ATTEMPTS` parallel `attemptOneLocation`s. All-HTTP-failure batch → increment counter + exponential backoff; mixed batch (any coverage miss) → counter resets, immediate retry. Throws `"Mapillary API appears unreachable"` only after `MAX_CONSECUTIVE_HTTP_BATCHES` consecutive HTTP-only batches; throws `"Game ended"` if `state.gameRunning` flips false
 - `createRoundPool(onSettled)` — race-based pool: `add(promise)` enqueues; `take()` returns the first-_resolved_ (not first-queued); `onSettled` fires after every task settle so the caller can top off. Eliminates "round 1 waits on a slow lookup while later prefetches already finished"
 - `ensurePoolFull()` — keeps `(rounds remaining) + POOL_BUFFER` lookups in flight or ready. Called at game start, after every round consumed, and after every pool task settles
 - `primeRoundQueue()` — flips `gameRunning` on, builds the pool, kicks off the initial `ensurePoolFull`
 - `showPrefetchedRound()` — `await state.roundPool.take()`; 200 ms-debounced "Loading panorama..." overlay; calls `ensurePoolFull()` after consume to keep search density high. Only error path is "Mapillary unreachable" (shows rate-limit message + token suggestion)
+
+### Google Street View integration — [public/game.js](public/game.js)
+
+The Google path is **opt-in per user**: empty `localStorage[GOOGLE_KEY_STORAGE]` → entire path is dormant, code behaves identically to Mapillary-only. When a key is present, `attemptOneLocation` (above) tries Google first.
+
+- `resolveGoogleKey()` — `localStorage[GOOGLE_KEY_STORAGE]` → trimmed string (empty if unset)
+- `loadGoogleMaps(key)` — lazy-loads the Google Maps JS bundle on first use; deduplicates concurrent calls via a singleton Promise. **The key is locked to the first call** (Google's loader only respects the first key passed); switching keys mid-session requires a page reload
+- `findGoogleStreetView(lat, lng, key)` — wraps `StreetViewService.getPanorama` with `radius: GOOGLE_SEARCH_RADIUS_M` and `source: OUTDOOR` (excludes user-uploaded photospheres — the Google equivalent of Mapillary's `is_pano=true`). Returns `{ id, lat, lng }` from the resolved panorama metadata, or `null` on `ZERO_RESULTS`. Throws `"Google API: <STATUS>"` on real errors (`OVER_QUERY_LIMIT`, `REQUEST_DENIED`, etc.) — `isHttpFailure` matches that prefix
+- `showGoogleViewer(image)` — creates a `google.maps.StreetViewPanorama` on first call, then `setPano()` to move the existing instance across same-source rounds (no destroy needed unless `viewerSource` flips, which `teardownViewer` handles)
 
 ### Maps (Leaflet) — [public/game.js](public/game.js)
 
@@ -150,6 +162,7 @@ End-of-file block under the comment `--- Start screen wiring ---`:
 - `refreshStartButton()` — Start is **always enabled**; label is `"Start Game"` if a ≥10-char token is configured, else `"Start as guest"`
 - `presetToken` pre-fill — copies any saved/preset token into the Settings input so the user sees what's configured
 - `settingsToggle` click handler — toggles the `#settings-panel` (token entry + future per-user settings)
+- `googleKeyInput` listener — auto-saves the Google Maps API key to `localStorage[GOOGLE_KEY_STORAGE]` on every keystroke (no Save button; empty input clears the entry). Wrapped in `if (googleKeyInput)` so removing the input from index.html later won't break the page
 - `startBtn` click handler — saves typed token to localStorage if changed; if a token resolves, calls `primeRoundQueue` for a normal game; otherwise sets `state.guestMode = true` and skips prefetch. Always calls `startRound`
 - `back-to-start-btn` (in the guest placeholder) — `resetGame` + back to start screen
 - `guest-save-btn` (in the guest placeholder) — paste-then-save upgrade path: writes the typed token to localStorage, syncs the start-screen Settings input, then `resetGame` + `primeRoundQueue` + `startRound` for a normal game. Disabled until the input has 10+ chars
@@ -175,7 +188,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 
 - Four screens: `#start-screen`, `#game-screen`, `#result-screen`, `#end-screen`
 - HUD: `#hud`, `#round-num`, `#score`, `#timer-hud`, `#timer`
-- Start screen: `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`
+- Start screen: `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`, `#google-key-input`
 - Mini-map panel: `#map-panel`, `#guess-map`, `#guess-btn`
 - Status overlay: `#streetview-status`
 - Demo-mode placeholder: `#guest-placeholder`, `#demo-round-num`, `#demo-hint`, `#guest-token-input`, `#guest-save-btn`, `#back-to-start-btn` — overlays the panorama area when entering without a token; shows demo round indicator + textual hint (substitutes for the panorama) + in-place token entry so the user can upgrade without bouncing back to the start screen
@@ -236,6 +249,8 @@ What it does, and why each piece is needed:
 - **`localStorage.setItem('geoguess.mapillaryToken', ...)`** — pre-sets a fake token via `addInitScript`, skipping the start-screen input.
 
 When adding new e2e tests, prefer reusing the helper. If you need a different mock response (e.g., empty-data path, error path), customize within the test rather than mutating the helper.
+
+**Google Street View path is currently untested in e2e** — no test sets `localStorage[GOOGLE_KEY_STORAGE]`, so `attemptOneLocation` always falls through to Mapillary. To add a Google-path test you'd need to (1) preset the Google key via `addInitScript`, (2) intercept `**/maps.googleapis.com/**` to fulfill the Maps JS bundle with a stub, (3) stub `window.google.maps.StreetViewService` and `StreetViewPanorama` in `addInitScript` similar to how `window.mapillary.Viewer` is stubbed today.
 
 ## Conventions
 
