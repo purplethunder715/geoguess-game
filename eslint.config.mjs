@@ -67,6 +67,7 @@ export default [
       globals: {
         L: 'readonly',
         mapillary: 'readonly',
+        google: 'readonly',
         Image: 'readonly',
         MAPILLARY_TOKEN: 'readonly',
         LOCATIONS: 'readonly',

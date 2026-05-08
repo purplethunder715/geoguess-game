@@ -12,6 +12,17 @@ const ROUNDS_PER_GAME = 5;
 const ROUND_SECONDS = 60;
 const TOKEN_STORAGE = 'geoguess.mapillaryToken';
 
+// Per-user Google Maps API key for the Google-Street-View primary path.
+// Stored in localStorage (entered via the settings panel) instead of bundled
+// in config.js so each player's usage bills against their own Google Cloud
+// account, not Brady's. If empty, the game falls back to Mapillary-only.
+const GOOGLE_KEY_STORAGE = 'geoguess.googleMapsApiKey';
+
+// Radius (meters) for Google's StreetViewService.getPanorama lookup. Matches
+// the order-of-magnitude of Mapillary's SEARCH_DELTA_DEG bbox so the two
+// providers see similar coverage windows around each curated/random point.
+const GOOGLE_SEARCH_RADIUS_M = 4000;
+
 // Bbox half-size (degrees) for Mapillary lookups. ~0.04° ≈ 4 km — wide
 // enough to find coverage in most major cities, tight enough that Mapillary
 // won't reject the query for "too many results" in dense downtowns.
@@ -122,6 +133,11 @@ const state = {
   // forever and bail out via this flag when the game ends, so reset/restart
   // doesn't leave zombie API calls running.
   gameRunning: false,
+  // Which provider built `state.viewer`: 'google', 'mapillary', or null.
+  // Drives the source-switch teardown in showImageInViewer — if a round's
+  // image came from a different provider than the last one, we have to
+  // destroy the old viewer and create a fresh one of the new type.
+  viewerSource: null,
   // Set true when the user clicks Start without a Mapillary token. The game
   // screen renders without panoramas (placeholder card) so the layout is
   // visible. Submit stays disabled — there's no actual location to score.
@@ -168,6 +184,80 @@ function resolveToken() {
     return MAPILLARY_TOKEN.trim();
   }
   return (localStorage.getItem(TOKEN_STORAGE) || '').trim();
+}
+
+// --- Google Maps lazy-loader + Street View lookup --------------------------
+
+function resolveGoogleKey() {
+  return (localStorage.getItem(GOOGLE_KEY_STORAGE) || '').trim();
+}
+
+// Lazy-loaded singleton — first call inserts the Maps JS script tag and
+// returns a Promise that resolves once `window.google.maps` is ready.
+// Subsequent calls return the same promise. We never reload, even if the
+// caller passes a different key — Google's JS API only respects the first
+// key it was loaded with per page.
+let _gmapsPromise = null;
+function loadGoogleMaps(key) {
+  if (_gmapsPromise) return _gmapsPromise;
+  _gmapsPromise = new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) {
+      resolve();
+      return;
+    }
+    const cb = '__gmapsReady_' + Date.now();
+    window[cb] = () => {
+      delete window[cb];
+      resolve();
+    };
+    const script = document.createElement('script');
+    script.src =
+      `https://maps.googleapis.com/maps/api/js` +
+      `?key=${encodeURIComponent(key)}&callback=${cb}&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.onerror = () => {
+      _gmapsPromise = null; // allow retry after a transient failure
+      reject(new Error('Google API: failed to load Maps JS bundle'));
+    };
+    document.head.appendChild(script);
+  });
+  return _gmapsPromise;
+}
+
+// Find the closest Google Street View panorama within GOOGLE_SEARCH_RADIUS_M
+// of (lat, lng). Returns {id, lat, lng} or null on coverage miss; throws on
+// real API errors (bad key, rate limit) so prepareRound counts it toward
+// the HTTP-failure budget. `source: OUTDOOR` excludes user-uploaded
+// photospheres so we get only road-network panoramas — Google's equivalent
+// of Mapillary's `is_pano=true` filter.
+async function findGoogleStreetView(lat, lng, key) {
+  await loadGoogleMaps(key);
+  return new Promise((resolve, reject) => {
+    const sv = new google.maps.StreetViewService();
+    sv.getPanorama(
+      {
+        location: { lat, lng },
+        radius: GOOGLE_SEARCH_RADIUS_M,
+        source: google.maps.StreetViewSource.OUTDOOR,
+      },
+      (data, status) => {
+        if (status === 'OK' && data && data.location) {
+          resolve({
+            id: data.location.pano,
+            lat: data.location.latLng.lat(),
+            lng: data.location.latLng.lng(),
+          });
+        } else if (status === 'ZERO_RESULTS') {
+          // No coverage here — let the caller fall back to Mapillary.
+          resolve(null);
+        } else {
+          // OVER_QUERY_LIMIT, REQUEST_DENIED, INVALID_REQUEST, UNKNOWN_ERROR.
+          reject(new Error(`Google API: ${status}`));
+        }
+      },
+    );
+  });
 }
 
 // --- Mapillary imagery lookup ----------------------------------------------
@@ -258,17 +348,48 @@ function preloadImage(url) {
   img.src = url;
 }
 
-// Set up (or move) the Mapillary viewer to a specific image ID. The viewer
-// itself draws blue arrows for connected images so the user can walk between
-// panoramas. If `moveTo` fails (bad image ID, network blip, internal viewer
-// state corruption) we tear the viewer down and rebuild it fresh — without
-// this fallback the user gets stuck staring at the previous round's image.
-function showImageInViewer(imageId, token) {
+// Dispatcher: route to Google or Mapillary depending on which provider
+// resolved the round's image. The container `#mapillary-viewer` (kept that
+// id for backwards-compat with CSS / e2e) is reused; if the source flips
+// between rounds we destroy the old viewer first because Google's
+// StreetViewPanorama and Mapillary's Viewer can't share the same DOM.
+function showImageInViewer(image, source, mapillaryToken) {
+  if (state.viewerSource && state.viewerSource !== source) {
+    teardownViewer();
+  }
+  if (source === 'google') {
+    showGoogleViewer(image);
+  } else {
+    showMapillaryViewer(image, mapillaryToken);
+  }
+  state.viewerSource = source;
+}
+
+function teardownViewer() {
+  if (state.viewer && state.viewerSource === 'mapillary') {
+    try {
+      state.viewer.remove();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  // Google's StreetViewPanorama has no destroy method; clearing the
+  // container's children is enough — the JS instance is GC'd once we drop
+  // our reference.
+  document.getElementById('mapillary-viewer').innerHTML = '';
+  state.viewer = null;
+  state.viewerSource = null;
+}
+
+// Mapillary path. If `moveTo` fails (bad image ID, network blip, internal
+// viewer state corruption) we tear it down and rebuild — without that
+// fallback the player gets stuck staring at the previous round's image.
+function showMapillaryViewer(image, token) {
   const create = () => {
     state.viewer = new mapillary.Viewer({
       accessToken: token,
       container: 'mapillary-viewer',
-      imageId: imageId,
+      imageId: image.id,
       component: { cover: false },
     });
   };
@@ -278,7 +399,7 @@ function showImageInViewer(imageId, token) {
     return;
   }
 
-  state.viewer.moveTo(imageId).catch((err) => {
+  state.viewer.moveTo(image.id).catch((err) => {
     console.warn('Mapillary moveTo failed; rebuilding viewer:', err);
     try {
       state.viewer.remove();
@@ -290,12 +411,48 @@ function showImageInViewer(imageId, token) {
   });
 }
 
+// Google path. StreetViewPanorama supports setPano() to move between
+// images, so we reuse the same instance across same-source rounds.
+function showGoogleViewer(image) {
+  if (!state.viewer) {
+    state.viewer = new google.maps.StreetViewPanorama(
+      document.getElementById('mapillary-viewer'),
+      {
+        position: { lat: image.lat, lng: image.lng },
+        pano: image.id,
+        addressControl: false,
+        showRoadLabels: false,
+        fullscreenControl: false,
+        motionTrackingControl: false,
+        zoomControl: true,
+      },
+    );
+  } else {
+    state.viewer.setPano(image.id);
+  }
+}
+
 // One single attempt: pick a random location and look up imagery there.
-async function attemptOneLocation(token) {
+// Try Google Street View first if the user has set a Google key (better
+// global coverage, walkable everywhere). Fall back to Mapillary either on
+// a coverage miss (Google's `ZERO_RESULTS`, the most common case) or
+// transparently when no Google key is set.
+async function attemptOneLocation(mapillaryToken) {
   const loc = pickRandomLocation();
-  const image = await findMapillaryImage(loc.lat, loc.lng, token);
-  if (!image) throw new Error(`No imagery near ${loc.name}`);
-  return { loc, image };
+  const googleKey = resolveGoogleKey();
+
+  if (googleKey) {
+    const googleImage = await findGoogleStreetView(loc.lat, loc.lng, googleKey);
+    if (googleImage) return { loc, image: googleImage, source: 'google' };
+    // No Google coverage at this point; fall through to Mapillary. Real
+    // Google API errors (bad key, rate limit, etc.) are NOT caught — they
+    // throw "Google API: <STATUS>" which prepareRound counts as an HTTP
+    // failure.
+  }
+
+  const mapillaryImage = await findMapillaryImage(loc.lat, loc.lng, mapillaryToken);
+  if (!mapillaryImage) throw new Error(`No imagery near ${loc.name}`);
+  return { loc, image: mapillaryImage, source: 'mapillary' };
 }
 
 // Tells whether an error from attemptOneLocation looks like an HTTP/network
@@ -305,7 +462,11 @@ function isHttpFailure(err) {
   if (!err) return false;
   if (err.name === 'AbortError') return true;
   const msg = err.message || '';
-  return msg.includes('Mapillary HTTP') || msg.includes('Mapillary API');
+  return (
+    msg.includes('Mapillary HTTP') ||
+    msg.includes('Mapillary API') ||
+    msg.includes('Google API')
+  );
 }
 
 // Resolve one round's data. Loops *forever* until either a walkable panorama
@@ -462,7 +623,7 @@ async function showPrefetchedRound() {
   // Use the actual photo coords for scoring — they may be a few hundred
   // meters off the city center we queried with.
   state.actualPoint = { lat: result.image.lat, lng: result.image.lng };
-  showImageInViewer(result.image.id, resolveToken());
+  showImageInViewer(result.image, result.source, resolveToken());
 }
 
 // --- Guess map -------------------------------------------------------------
@@ -680,7 +841,6 @@ function resetGame() {
 // --- Start screen wiring (token + Start button) ----------------------------
 
 const apiKeyInput = document.getElementById('api-key-input');
-const apiKeySection = document.getElementById('api-key-section');
 const startBtn = document.getElementById('start-btn');
 
 // Always enabled — a missing token routes through guest mode rather than
@@ -705,6 +865,19 @@ const settingsPanel = document.getElementById('settings-panel');
 settingsToggle.addEventListener('click', () => {
   settingsPanel.classList.toggle('hidden');
 });
+
+// Google Maps key field — opt-in upgrade from the bundled-Mapillary demo
+// path. Stored in localStorage on input so the user doesn't have to click
+// anything to save it; takes effect on the next round (and across reloads).
+const googleKeyInput = document.getElementById('google-key-input');
+if (googleKeyInput) {
+  googleKeyInput.value = resolveGoogleKey();
+  googleKeyInput.addEventListener('input', () => {
+    const trimmed = googleKeyInput.value.trim();
+    if (trimmed) localStorage.setItem(GOOGLE_KEY_STORAGE, trimmed);
+    else localStorage.removeItem(GOOGLE_KEY_STORAGE);
+  });
+}
 
 startBtn.addEventListener('click', () => {
   const typed = (apiKeyInput.value || '').trim();

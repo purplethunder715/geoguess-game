@@ -57,6 +57,30 @@
               Without a token you can still enter as a guest to see the layout.
             </p>
           </div>
+
+          <div id="google-key-section">
+            <label for="google-key-input" class="field-label">
+              Google Maps API key (optional)
+              <a
+                href="https://developers.google.com/maps/documentation/javascript/get-api-key"
+                target="_blank"
+                rel="noopener"
+                >how to get one</a
+              >
+            </label>
+            <input
+              id="google-key-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="AIza..."
+            />
+            <p class="muted small">
+              If set, Google Street View becomes the primary source (better global
+              coverage) and Mapillary stays as fallback. Saved to your browser only —
+              billed against your own Google Cloud account, not anyone else's.
+            </p>
+          </div>
         </div>
       </div>
     </div>
