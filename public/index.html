@@ -25,7 +25,19 @@
           You're dropped somewhere on Earth. Look around (and walk down the street!), then
           drop a pin where you think you are.
         </p>
-        <p class="muted">5 rounds &middot; up to 5,000 points per round</p>
+        <p class="muted">Up to 5,000 points per round</p>
+
+        <label class="rounds-row">
+          <span>Rounds per game</span>
+          <input
+            id="rounds-input"
+            type="number"
+            min="1"
+            max="20"
+            value="5"
+            inputmode="numeric"
+          />
+        </label>
 
         <label class="toggle">
           <input type="checkbox" id="timer-toggle" />
@@ -95,7 +107,10 @@
            — guess map, timer, scoring, result, end — runs end-to-end against
            DEMO_ROUNDS data so the user can evaluate the full UX. -->
       <div id="guest-placeholder" class="hidden">
-        <h2>Demo round <span id="demo-round-num">1</span> of 5</h2>
+        <h2>
+          Demo round <span id="demo-round-num">1</span> of
+          <span id="demo-round-total">5</span>
+        </h2>
         <p class="demo-hint-line"><strong>Hint:</strong> <span id="demo-hint"></span></p>
         <p class="muted small">
           Drop a pin on the map below and Submit. Demo mode runs the full gameplay against
@@ -122,7 +137,9 @@
       </div>
 
       <div id="hud">
-        <div class="hud-item">Round <span id="round-num">1</span>/5</div>
+        <div class="hud-item">
+          Round <span id="round-num">1</span>/<span id="round-total">5</span>
+        </div>
         <div class="hud-item">Score <span id="score">0</span></div>
         <div class="hud-item" id="timer-hud">Time <span id="timer">60</span>s</div>
       </div>

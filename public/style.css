@@ -74,6 +74,33 @@ button {
   cursor: pointer;
 }
 
+/* Rounds-per-game number input on the start screen. Same vertical rhythm
+   as `.toggle` so the two settings line up visually. */
+.rounds-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 16px 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
+.rounds-row input {
+  width: 64px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.3);
+  color: #e6e8ea;
+  font-family: inherit;
+  font-size: 14px;
+  text-align: center;
+}
+.rounds-row input:focus {
+  outline: none;
+  border-color: #4ade80;
+}
+
 /* API key field on the start screen */
 #api-key-section {
   margin: 20px 0 8px;

@@ -27,12 +27,16 @@ function formatDistance(km) {
   return `${Math.round(km).toLocaleString()} km`;
 }
 
-// Final-game rating buckets keyed off total score (0–25000).
-function ratingFor(totalScore) {
-  if (totalScore >= 22500) return 'World traveler!';
-  if (totalScore >= 17500) return 'Geography buff';
-  if (totalScore >= 12500) return 'Decent navigator';
-  if (totalScore >= 7500) return 'Getting there...';
+// Final-game rating buckets keyed off the score-as-fraction-of-max so the
+// thresholds scale with `roundsPerGame`. Default `maxScore` of 25000 keeps
+// the legacy 5-round numbers intact for the existing unit tests.
+function ratingFor(totalScore, maxScore = 25000) {
+  if (maxScore <= 0) return 'Keep exploring!';
+  const pct = totalScore / maxScore;
+  if (pct >= 0.9) return 'World traveler!';
+  if (pct >= 0.7) return 'Geography buff';
+  if (pct >= 0.5) return 'Decent navigator';
+  if (pct >= 0.3) return 'Getting there...';
   return 'Keep exploring!';
 }
 

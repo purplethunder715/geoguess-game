@@ -125,7 +125,7 @@ group('formatDistance', () => {
 // ---------------- ratingFor ------------------------------------------------
 
 group('ratingFor', () => {
-  test('hits each bucket boundary', () => {
+  test('hits each bucket boundary at default 25000-max', () => {
     assert.strictEqual(ratingFor(25000), 'World traveler!');
     assert.strictEqual(ratingFor(22500), 'World traveler!');
     assert.strictEqual(ratingFor(22499), 'Geography buff');
@@ -133,6 +133,21 @@ group('ratingFor', () => {
     assert.strictEqual(ratingFor(12500), 'Decent navigator');
     assert.strictEqual(ratingFor(7500), 'Getting there...');
     assert.strictEqual(ratingFor(0), 'Keep exploring!');
+  });
+
+  test('scales with custom maxScore (configurable round count)', () => {
+    // 10-round game → max 50000. Same percentages as the default suite.
+    assert.strictEqual(ratingFor(50000, 50000), 'World traveler!');
+    assert.strictEqual(ratingFor(45000, 50000), 'World traveler!'); // 90%
+    assert.strictEqual(ratingFor(34999, 50000), 'Decent navigator'); // <70%
+    assert.strictEqual(ratingFor(25000, 50000), 'Decent navigator'); // 50%
+    assert.strictEqual(ratingFor(15000, 50000), 'Getting there...'); // 30%
+    assert.strictEqual(ratingFor(0, 50000), 'Keep exploring!');
+  });
+
+  test('zero or negative max defaults to lowest bucket', () => {
+    assert.strictEqual(ratingFor(100, 0), 'Keep exploring!');
+    assert.strictEqual(ratingFor(100, -1), 'Keep exploring!');
   });
 });
 

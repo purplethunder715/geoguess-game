@@ -8,7 +8,12 @@ const SCREENS = {
   end: document.getElementById('end-screen'),
 };
 
-const ROUNDS_PER_GAME = 5;
+// Default round count if the user doesn't change the start-screen input.
+// The actual value used at runtime lives on `state.roundsPerGame`, set when
+// the user clicks Start.
+const DEFAULT_ROUNDS_PER_GAME = 5;
+const MIN_ROUNDS_PER_GAME = 1;
+const MAX_ROUNDS_PER_GAME = 20;
 const ROUND_SECONDS = 60;
 const TOKEN_STORAGE = 'geoguess.mapillaryToken';
 
@@ -23,6 +28,15 @@ const GOOGLE_KEY_STORAGE = 'geoguess.googleMapsApiKey';
 // providers see similar coverage windows around each curated/random point.
 const GOOGLE_SEARCH_RADIUS_M = 4000;
 
+// Sanity cap (meters): if Google ever returns a panorama farther than this
+// from the requested point, treat it as a coverage miss instead of using it.
+// Google's `radius` param is supposed to limit results but with the OUTDOOR
+// source filter it gets sloppy — we've seen panoramas come back hundreds of
+// kilometers away (e.g. asked for a point in Austria, got a Berlin pano).
+// 50 km gives plenty of slack for normal "nearest road" snapping while
+// rejecting the pathological cross-country jumps.
+const GOOGLE_RESULT_MAX_KM = 50;
+
 // Bbox half-size (degrees) for Mapillary lookups. ~0.04° ≈ 4 km — wide
 // enough to find coverage in most major cities, tight enough that Mapillary
 // won't reject the query for "too many results" in dense downtowns.
@@ -35,11 +49,12 @@ const FETCH_TIMEOUT_MS = 5000;
 
 // How many parallel location lookups to fire per prepareRound batch. First
 // one to succeed wins; the others are abandoned. NOTE: the bottleneck is
-// Mapillary's free-tier rate limit, NOT Brady's machine. Setting this too
-// high (was 8 for one painful afternoon) makes Mapillary 500 every request
-// and cascades into a CORS-error-looking failure across every round. 3 is
-// the sweet spot: still fast, doesn't trigger throttling.
-const PARALLEL_ATTEMPTS = 3;
+// Mapillary's free-tier rate limit, NOT Brady's machine — going high makes
+// Mapillary 500 every request and cascades into a CORS-error-looking
+// failure across every round. With Google Street View as primary (better
+// coverage = fewer ZERO_RESULTS), 2 is plenty: a single retry covers most
+// dead spots, and the worst-case latency is still under a second.
+const PARALLEL_ATTEMPTS = 2;
 
 // prepareRound retries forever. We only show an error if EVERY attempt
 // across this many consecutive batches failed with an HTTP/network error
@@ -49,9 +64,9 @@ const PARALLEL_ATTEMPTS = 3;
 const MAX_CONSECUTIVE_HTTP_BATCHES = 20;
 
 // Keep this many extra prefetched rounds in the pool beyond what's strictly
-// needed. Was 10 — combined with PARALLEL_ATTEMPTS=8 that's 80+ requests
-// in flight per game and Mapillary's free tier rate-limits well below that.
-const POOL_BUFFER = 3;
+// needed. With Google's better coverage we don't need a deep buffer — 2 is
+// enough that a single dead spot doesn't make the next round wait.
+const POOL_BUFFER = 2;
 
 // Exponential backoff after an HTTP failure batch. Starts at this many ms,
 // doubles each time, caps at BACKOFF_MAX_MS. Reset on any successful batch.
@@ -115,6 +130,10 @@ const LABELS_TILES =
 const state = {
   round: 0,
   score: 0,
+  // Set when the user clicks Start, from the start-screen rounds input
+  // (clamped to MIN..MAX). Drives prefetch sizing, round-end transitions,
+  // and final-score display. Default until then is DEFAULT_ROUNDS_PER_GAME.
+  roundsPerGame: DEFAULT_ROUNDS_PER_GAME,
   currentLocation: null,
   actualPoint: null, // {lat, lng} of the panorama Mapillary actually returned
   guessLatLng: null,
@@ -251,10 +270,22 @@ async function findGoogleStreetView(lat, lng, key) {
       },
       (data, status) => {
         if (status === 'OK' && data && data.location) {
+          const resultLat = data.location.latLng.lat();
+          const resultLng = data.location.latLng.lng();
+          // Sanity check: Google sometimes ignores the radius param with
+          // OUTDOOR and snaps to a panorama hundreds of km away. Reject
+          // anything farther than GOOGLE_RESULT_MAX_KM and let the caller
+          // pick another spot — keeps the displayed location ~match the
+          // actual photo's region.
+          const distKm = haversineDistance(lat, lng, resultLat, resultLng);
+          if (distKm > GOOGLE_RESULT_MAX_KM) {
+            resolve(null);
+            return;
+          }
           resolve({
             id: data.location.pano,
-            lat: data.location.latLng.lat(),
-            lng: data.location.latLng.lng(),
+            lat: resultLat,
+            lng: resultLng,
           });
         } else if (status === 'ZERO_RESULTS') {
           // No coverage here — let the caller fall back to Mapillary.
@@ -265,6 +296,50 @@ async function findGoogleStreetView(lat, lng, key) {
         }
       },
     );
+  });
+}
+
+// Reverse-geocode a lat/lng to a "<city>, <country>" string using Google's
+// Geocoder. Used to label region-picked rounds with the actual city the
+// panorama lives in (e.g. "Berlin, Germany" instead of "Somewhere in Austria"
+// when the random point landed near a border or Google snapped further
+// than the bbox). Returns null if the Geocoding API isn't enabled, the
+// request fails, or the result has no usable components — caller falls
+// back to the original picked name.
+async function reverseGeocode(lat, lng, key) {
+  if (!key) return null;
+  try {
+    await loadGoogleMaps(key);
+  } catch (_) {
+    return null;
+  }
+  return new Promise((resolve) => {
+    const geo = new google.maps.Geocoder();
+    geo.geocode({ location: { lat, lng } }, (results, status) => {
+      if (status !== 'OK' || !Array.isArray(results) || results.length === 0) {
+        // REQUEST_DENIED most commonly means the Geocoding API isn't
+        // enabled on the project. Gracefully give up and let the caller
+        // use the picked-name fallback.
+        resolve(null);
+        return;
+      }
+      // Walk the results, prefer one with a `locality` (city) component.
+      // Google returns a list ordered most-specific to least-specific.
+      let locality = null;
+      let country = null;
+      for (const r of results) {
+        for (const c of r.address_components || []) {
+          if (!locality && c.types.includes('locality')) locality = c.long_name;
+          if (!country && c.types.includes('country')) country = c.long_name;
+        }
+        if (locality && country) break;
+      }
+      if (!country) {
+        resolve(null);
+        return;
+      }
+      resolve(locality ? `${locality}, ${country}` : country);
+    });
   });
 }
 
@@ -451,7 +526,16 @@ async function attemptOneLocation(mapillaryToken) {
 
   if (googleKey) {
     const googleImage = await findGoogleStreetView(loc.lat, loc.lng, googleKey);
-    if (googleImage) return { loc, image: googleImage, source: 'google' };
+    if (googleImage) {
+      // Reverse-geocode the actual panorama coords (which may differ from
+      // the requested point) so the result screen shows the city the
+      // photo's actually in, not the random region we queried from. If
+      // the Geocoding API isn't enabled or fails, geocoded === null and
+      // we fall back to the picked-region name.
+      const geocoded = await reverseGeocode(googleImage.lat, googleImage.lng, googleKey);
+      const labeled = geocoded ? { ...loc, name: geocoded } : loc;
+      return { loc: labeled, image: googleImage, source: 'google' };
+    }
     // No Google coverage at this point; fall through to Mapillary. Real
     // Google API errors (bad key, rate limit, etc.) are NOT caught — they
     // throw "Google API: <STATUS>" which prepareRound counts as an HTTP
@@ -575,7 +659,7 @@ function createRoundPool(onSettled = () => {}) {
 // loops forever), so a coverage-miss here never surfaces to the user.
 function ensurePoolFull() {
   if (!state.roundPool || !state.gameRunning) return;
-  const remaining = Math.max(0, ROUNDS_PER_GAME - state.round);
+  const remaining = Math.max(0, state.roundsPerGame - state.round);
   const target = remaining + POOL_BUFFER;
   const sizes = state.roundPool.sizes();
   const have = sizes.ready + sizes.pending;
@@ -815,16 +899,17 @@ function showResult(distance, points, timedOut) {
   document.getElementById('result-location').textContent = state.currentLocation.name;
 
   document.getElementById('next-btn').textContent =
-    state.round >= ROUNDS_PER_GAME ? 'See Final Score' : 'Next Round';
+    state.round >= state.roundsPerGame ? 'See Final Score' : 'Next Round';
 }
 
 function endGame() {
   // Stop background prefetch loops as soon as the last round is scored.
   state.gameRunning = false;
   showScreen('end');
+  const maxScore = state.roundsPerGame * 5000;
   document.getElementById('final-score').textContent =
-    `${state.score.toLocaleString()} / 25,000`;
-  document.getElementById('final-rating').textContent = ratingFor(state.score);
+    `${state.score.toLocaleString()} / ${maxScore.toLocaleString()}`;
+  document.getElementById('final-rating').textContent = ratingFor(state.score, maxScore);
 }
 
 function resetGame() {
@@ -895,7 +980,26 @@ startBtn.addEventListener('click', () => {
   }
 
   state.timerEnabled = document.getElementById('timer-toggle').checked;
+
+  // Read + clamp the rounds input. Default falls through if the input is
+  // missing, blank, or non-numeric. Demo / guest mode also respects this
+  // so the user can preview a 3-round game without a real token.
+  const roundsInput = document.getElementById('rounds-input');
+  const rawRounds = roundsInput ? Number.parseInt(roundsInput.value, 10) : NaN;
+  const clamped = Math.min(
+    MAX_ROUNDS_PER_GAME,
+    Math.max(
+      MIN_ROUNDS_PER_GAME,
+      Number.isFinite(rawRounds) ? rawRounds : DEFAULT_ROUNDS_PER_GAME,
+    ),
+  );
   resetGame();
+  state.roundsPerGame = clamped;
+  // Reflect in the HUD (Round X/<total>) and demo placeholder.
+  const roundTotalEl = document.getElementById('round-total');
+  if (roundTotalEl) roundTotalEl.textContent = clamped;
+  const demoTotalEl = document.getElementById('demo-round-total');
+  if (demoTotalEl) demoTotalEl.textContent = clamped;
 
   const key = resolveToken();
   if (key.length >= 10) {
@@ -910,7 +1014,7 @@ startBtn.addEventListener('click', () => {
 document.getElementById('guess-btn').addEventListener('click', () => submitGuess(false));
 
 document.getElementById('next-btn').addEventListener('click', () => {
-  if (state.round >= ROUNDS_PER_GAME) endGame();
+  if (state.round >= state.roundsPerGame) endGame();
   else startRound();
 });
 
