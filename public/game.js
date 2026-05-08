@@ -54,6 +54,20 @@ const BACKOFF_MAX_MS = 30000;
 // arrow ~3 times before running out. Single isolated panos are rejected.
 const MIN_SEQUENCE_SIZE = 4;
 
+// Hardcoded rounds for guest mode. The Mapillary SDK can't render without
+// a real token, so the panorama area stays a placeholder card — but every
+// other code path (guess map, timer, scoring, result, end) runs through
+// the production flow with these as the "actual point". Picked as famous
+// landmarks so result-screen markers visually reinforce that scoring is
+// against a real coordinate pair.
+const DEMO_ROUNDS = [
+  { lat: 48.8584, lng: 2.2945, name: 'Eiffel Tower, Paris, France' },
+  { lat: 40.6892, lng: -74.0445, name: 'Statue of Liberty, New York, USA' },
+  { lat: -33.8568, lng: 151.2153, name: 'Sydney Opera House, Australia' },
+  { lat: 35.6586, lng: 139.7454, name: 'Tokyo Tower, Japan' },
+  { lat: 51.5007, lng: -0.1246, name: 'Big Ben, London, UK' },
+];
+
 // Esri's free satellite tile layer + a labels overlay (looks like Google
 // satellite). No API key required; usage is permitted for non-commercial use.
 const SATELLITE_TILES =
@@ -451,20 +465,14 @@ function initGuessMap() {
 
   const btn = document.getElementById('guess-btn');
   btn.disabled = true;
-  btn.textContent = state.guestMode
-    ? 'Demo only — add a token in Settings'
-    : 'Place a pin to guess';
+  btn.textContent = 'Place a pin to guess';
 
   state.guessMap.on('click', (e) => {
     state.guessLatLng = e.latlng;
     if (state.guessMarker) state.guessMarker.setLatLng(e.latlng);
     else state.guessMarker = L.marker(e.latlng).addTo(state.guessMap);
-    // Submit stays disabled in guest mode — there's no actual panorama to
-    // compare against, so a "guess" can't be scored.
-    if (!state.guestMode) {
-      btn.disabled = false;
-      btn.textContent = 'Submit Guess';
-    }
+    btn.disabled = false;
+    btn.textContent = 'Submit Guess';
   });
 
   // The panel grows on hover via CSS transition. Leaflet doesn't notice
@@ -516,12 +524,18 @@ async function startRound() {
 
   const placeholder = document.getElementById('guest-placeholder');
   if (state.guestMode) {
+    // Demo round: pull canned location data, skip Mapillary entirely. The
+    // placeholder card stands in for the panorama; everything else (guess
+    // map, scoring, result, end game) runs the normal flow.
     placeholder.classList.remove('hidden');
-    // Hide the timer HUD entry — no countdown when there's nothing to time.
-    document.getElementById('timer-hud').style.display = 'none';
-    // Still init the guess map so the user can see / interact with it; just
-    // skip Mapillary prefetch and the timer.
-    setTimeout(() => initGuessMap(), 50);
+    document.getElementById('demo-round-num').textContent = state.round;
+    const demo = DEMO_ROUNDS[state.round - 1];
+    state.currentLocation = demo;
+    state.actualPoint = { lat: demo.lat, lng: demo.lng };
+    setTimeout(() => {
+      initGuessMap();
+      startTimer();
+    }, 50);
     return;
   }
 

@@ -66,14 +66,18 @@
       <div id="mapillary-viewer"></div>
       <div id="streetview-status" class="hidden">Looking for nearby imagery...</div>
 
-      <!-- Shown when the user enters without a Mapillary token. Replaces the
-           panorama with an explanation + a token entry form so the user can
-           upgrade in place without bouncing back to the start screen. -->
+      <!-- Demo-mode card. Stands in for the Mapillary panorama (which the
+           SDK can't render without a real token). The rest of the gameplay
+           — guess map, timer, scoring, result, end — runs end-to-end against
+           DEMO_ROUNDS data so the user can evaluate the full UX. -->
       <div id="guest-placeholder" class="hidden">
-        <h2>Guest mode</h2>
+        <h2>Demo round <span id="demo-round-num">1</span> of 5</h2>
         <p>
-          You're seeing the layout. To play with real panoramas you need a free Mapillary
-          access token —
+          You're playing demo mode — no real panoramas, but the gameplay works. Drop a pin
+          on the map below and Submit to see where you actually were.
+        </p>
+        <p>
+          For real panoramas, get a free Mapillary token —
           <a
             href="https://www.mapillary.com/dashboard/developers"
             target="_blank"
@@ -89,7 +93,7 @@
             spellcheck="false"
             placeholder="MLY|...paste your token"
           />
-          <button type="button" id="guest-save-btn" disabled>Save & play</button>
+          <button type="button" id="guest-save-btn" disabled>Save & play for real</button>
         </div>
         <button type="button" id="back-to-start-btn" class="link-btn">
           Back to start

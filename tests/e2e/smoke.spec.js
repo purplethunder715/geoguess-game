@@ -110,13 +110,13 @@ test.describe('Start screen', () => {
 });
 
 test.describe('Guest mode', () => {
-  test('Start without a token shows the guest placeholder on the game screen', async ({
+  test('Start without a token enters demo mode with a round indicator', async ({
     page,
   }) => {
     await blockConfigJs(page);
     // Block Esri so the guess map doesn't burn CDN bandwidth in CI; Leaflet
-    // still handles the layout. (No Mapillary calls fire — guest mode skips
-    // primeRoundQueue entirely.)
+    // still handles the layout. (No Mapillary calls fire — guest/demo mode
+    // skips primeRoundQueue entirely and uses DEMO_ROUNDS data.)
     await page.route('**/server.arcgisonline.com/**', (route) =>
       route.fulfill({ status: 200, body: '' }),
     );
@@ -127,15 +127,14 @@ test.describe('Guest mode', () => {
 
     await expect(page.locator('#game-screen')).toBeVisible();
     await expect(page.locator('#guest-placeholder')).toBeVisible();
-    await expect(page.locator('#guest-placeholder h2')).toHaveText('Guest mode');
+    await expect(page.locator('#guest-placeholder h2')).toContainText('Demo round');
+    await expect(page.locator('#demo-round-num')).toHaveText('1');
 
-    // Submit stays locked even after a pin drop — there's no actual location.
+    // Submit is initially "Place a pin" disabled, then enables after a pin
+    // drop — same flow as a real round, just against canned demo data.
     const guessBtn = page.locator('#guess-btn');
     await expect(guessBtn).toBeDisabled();
-    await expect(guessBtn).toContainText('Demo only');
-
-    // Timer HUD slot is hidden in guest mode (no countdown to show).
-    await expect(page.locator('#timer-hud')).toBeHidden();
+    await expect(guessBtn).toHaveText('Place a pin to guess');
   });
 
   test('Back-to-start from guest placeholder returns to start screen', async ({
@@ -177,5 +176,32 @@ test.describe('Guest mode', () => {
 
     await input.fill('MLY|abc123def456');
     await expect(save).toBeEnabled();
+  });
+
+  test('Demo round: drop pin → Submit → result shows distance + score', async ({
+    page,
+  }) => {
+    await blockConfigJs(page);
+    await page.route('**/server.arcgisonline.com/**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+
+    await page.goto('/');
+    await page.locator('#start-btn').click();
+    await expect(page.locator('#guest-placeholder')).toBeVisible();
+
+    // Drop a pin and submit — same path as a real round, scored against
+    // DEMO_ROUNDS[0] (Eiffel Tower) via Haversine.
+    await page.locator('#guess-map').click({ position: { x: 80, y: 80 } });
+    const guessBtn = page.locator('#guess-btn');
+    await expect(guessBtn).toBeEnabled();
+    await expect(guessBtn).toHaveText('Submit Guess');
+    await guessBtn.click();
+
+    // Result screen with a real score + distance line.
+    await expect(page.locator('#result-screen')).toBeVisible();
+    await expect(page.locator('#result-title')).toContainText('points');
+    await expect(page.locator('#result-distance')).toContainText('away');
+    await expect(page.locator('#result-location')).toContainText('Eiffel Tower');
   });
 });

@@ -100,6 +100,7 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 - `MAX_CONSECUTIVE_HTTP_BATCHES` (20) — abort threshold; coverage misses reset, only HTTP / network failures count
 - `BACKOFF_BASE_MS` (1500), `BACKOFF_MAX_MS` (30000) — exponential backoff between HTTP-failure batches
 - `MIN_SEQUENCE_SIZE` (4) — minimum panos-per-sequence for the "walkable" check (≥3 navigation arrows)
+- `DEMO_ROUNDS` — 5 hardcoded `{ lat, lng, name }` famous-landmark entries used by guest/demo mode in lieu of real Mapillary data; powers the full gameplay flow without API calls
 - `CURATED_PROBABILITY` (0.4) — chance of picking from `CURATED_LOCATIONS` vs. region-random
 - `SATELLITE_TILES`, `LABELS_TILES` — Esri tile URL templates
 - `state` — global game state (round, score, viewer, both maps, `roundPool`, `usedIndices`, `gameRunning` kill switch, `guestMode` flag)
@@ -107,7 +108,7 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 - `pickFromCurated()` — pick from `CURATED_LOCATIONS` with no-repeat tracking via `state.usedIndices`
 - `pickFromRegions()` — generate a random `{ lat, lng, name: "Somewhere in <country>" }` inside a `REGIONS` bbox
 - `pickRandomLocation()` — router: rolls `CURATED_PROBABILITY` and dispatches to one of the above
-- `startRound()` — increments round, defers map init via `setTimeout(..., 50)`. In `guestMode`, shows the guest placeholder + inits the guess map only (no Mapillary, no timer)
+- `startRound()` — increments round, defers map init via `setTimeout(..., 50)`. In `guestMode`, pulls `DEMO_ROUNDS[round-1]` into `state.currentLocation` / `state.actualPoint` (skipping Mapillary and the prefetch pool entirely) and shows the demo placeholder over the panorama area. Timer + scoring + result + end all run the normal flow
 - `submitGuess(timedOut)` — Haversine + score, drives result screen
 - `showResult(distance, points, timedOut)` — markers, dashed line, `fitBounds`
 - `endGame()` — flips `gameRunning` off (background prefetch loops bail), shows final score + rating bucket
@@ -175,7 +176,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - Start screen: `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`
 - Mini-map panel: `#map-panel`, `#guess-map`, `#guess-btn`
 - Status overlay: `#streetview-status`
-- Guest-mode placeholder: `#guest-placeholder`, `#guest-token-input`, `#guest-save-btn`, `#back-to-start-btn` — overlays the panorama area when entering without a token; in-place token entry so the user can upgrade without bouncing back to the start screen
+- Demo-mode placeholder: `#guest-placeholder`, `#demo-round-num`, `#guest-token-input`, `#guest-save-btn`, `#back-to-start-btn` — overlays the panorama area when entering without a token; shows demo round indicator + in-place token entry so the user can upgrade without bouncing back to the start screen
 - **Script load order** at bottom: `leaflet → mapillary → config → lib → locations → game` — do not reorder
 
 ### Styles — [public/style.css](public/style.css)
@@ -248,18 +249,29 @@ When adding new e2e tests, prefer reusing the helper. If you need a different mo
 
 **A new region** (country bbox): append `{ name, latMin, latMax, lngMin, lngMax }` to `REGIONS`. Keep the bbox to land area only — `pickFromRegions` samples uniformly inside, so all-water or pure-desert bboxes burn batch attempts on guaranteed coverage misses (the infinite-retry loop handles this gracefully but it wastes API calls).
 
-## Guest mode (no token)
+## Guest / demo mode (no token)
 
-The Mapillary token is **not gating** — the user can click Start at any time. With no token configured (`resolveToken()` returns `''`), the click handler sets `state.guestMode = true` and skips `primeRoundQueue` entirely (no Graph API calls, no pool, no timer). `startRound` then shows `#guest-placeholder` over the panorama area, inits the guess map (Esri tiles still work — Leaflet doesn't need a token), and leaves Submit disabled (`'Demo only — add a token in Settings'`).
+The Mapillary token is **not gating** — the user can click Start at any time. With no token configured (`resolveToken()` returns `''`), the click handler sets `state.guestMode = true`, skips `primeRoundQueue` entirely (no Graph API calls, no pool), and routes through the **demo path** in `startRound`.
+
+The demo path uses `DEMO_ROUNDS` (5 hardcoded famous landmarks) in place of prefetched Mapillary results. `state.currentLocation` and `state.actualPoint` get populated from `DEMO_ROUNDS[round-1]`, so **the production code path runs end-to-end**:
+
+- The guess map renders normally (Esri tiles still work — Leaflet doesn't need a token).
+- The timer runs if the user enabled it on the start screen.
+- Submit enables after a pin drop, just like a real round.
+- Haversine scoring runs against the canned coordinates.
+- The result screen shows actual-vs-guess markers + dashed line + distance.
+- Round counter increments, end screen reaches `ratingFor(state.score)`.
+
+The only thing missing is the actual panorama — the Mapillary SDK requires a real token, so the panorama area stays a placeholder card showing "Demo round X of 5" + the upgrade prompt.
 
 The placeholder offers two exits:
 
-- **`#guest-save-btn` ("Save & play")** — the upgrade path. Paste a token into `#guest-token-input` (button enables at ≥10 chars), click Save: writes to localStorage, syncs the start-screen Settings input, calls `resetGame` + `primeRoundQueue` + `startRound` for a normal game.
+- **`#guest-save-btn` ("Save & play for real")** — the upgrade path. Paste a token into `#guest-token-input` (button enables at ≥10 chars), click Save: writes to localStorage, syncs the start-screen Settings input, calls `resetGame` + `primeRoundQueue` + `startRound`. Mid-demo progress is reset; the user starts fresh at round 1 with real panoramas.
 - **`#back-to-start-btn`** — `resetGame` + back to start screen.
 
-There are now two equivalent token-entry points (start-screen Settings panel, in-place guest form). They both write to the same localStorage key and `apiKeyInput.value` is kept in sync between them.
+Two equivalent token-entry points exist (start-screen Settings panel + in-place demo form); both write the same localStorage key and `apiKeyInput.value` is kept in sync between them.
 
-Future per-user auth (eventually) will populate the token via login, replacing the localStorage path. Don't add new gating UX in front of Start — guest mode is the contract.
+Future per-user auth (eventually) will populate the token via login, replacing the localStorage path. Don't add new gating UX in front of Start — demo gameplay is the contract.
 
 ## Token resolution order
 
