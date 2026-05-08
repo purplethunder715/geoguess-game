@@ -61,8 +61,12 @@ test.describe('Game flow (mocked Mapillary)', () => {
     await expect(page.locator('#round-num')).toHaveText('1');
 
     // Click on the guess map — Leaflet's click handler enables Submit.
+    // Wait for initGuessMap's setTimeout(50) to fire by syncing on the
+    // button text it sets, otherwise the click can race the handler
+    // attachment on slower runners.
     const guessMap = page.locator('#guess-map');
     await expect(guessMap).toBeVisible();
+    await expect(page.locator('#guess-btn')).toHaveText('Place a pin to guess');
     await guessMap.click({ position: { x: 80, y: 80 } });
 
     const guessBtn = page.locator('#guess-btn');
@@ -146,7 +150,9 @@ test.describe('Game flow (mocked Mapillary)', () => {
     await expect(page.locator('#guest-placeholder')).toBeHidden();
     await expect(page.locator('#round-num')).toHaveText('1');
 
-    // Submit becomes available after a pin drop (no longer "Demo only")
+    // Submit becomes available after a pin drop (no longer "Demo only").
+    // Sync on initGuessMap's setTimeout(50) via the button text it sets.
+    await expect(page.locator('#guess-btn')).toHaveText('Place a pin to guess');
     await page.locator('#guess-map').click({ position: { x: 80, y: 80 } });
     const guessBtn = page.locator('#guess-btn');
     await expect(guessBtn).toBeEnabled();

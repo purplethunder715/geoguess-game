@@ -198,6 +198,11 @@ test.describe('Guest mode', () => {
     await page.locator('#start-btn').click();
     await expect(page.locator('#guest-placeholder')).toBeVisible();
 
+    // Wait for initGuessMap's setTimeout(50) to fire — without this, on
+    // slower runners (CI) the click can land before Leaflet's click
+    // handler is attached, silently no-op'ing the pin drop.
+    await expect(page.locator('#guess-btn')).toHaveText('Place a pin to guess');
+
     // Drop a pin and submit — same path as a real round, scored against
     // DEMO_ROUNDS[0] (Eiffel Tower) via Haversine.
     await page.locator('#guess-map').click({ position: { x: 80, y: 80 } });
