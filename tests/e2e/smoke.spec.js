@@ -208,4 +208,66 @@ test.describe('Guest mode', () => {
     await expect(page.locator('#result-distance')).toContainText('away');
     await expect(page.locator('#result-location')).toContainText('Eiffel Tower');
   });
+
+  test('Demo: full 5-round playthrough → end screen → Play Again resets', async ({
+    page,
+  }) => {
+    await blockConfigJs(page);
+    await page.route('**/server.arcgisonline.com/**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+
+    await page.goto('/');
+    await page.locator('#start-btn').click();
+    await expect(page.locator('#guest-placeholder')).toBeVisible();
+
+    const hints = [];
+    for (let round = 1; round <= 5; round++) {
+      await expect(page.locator('#demo-round-num')).toHaveText(String(round));
+      await expect(page.locator('#round-num')).toHaveText(String(round));
+
+      const hint = (await page.locator('#demo-hint').textContent())?.trim();
+      expect(hint && hint.length).toBeGreaterThan(0);
+      hints.push(hint);
+
+      // Drop pin → Submit → result screen
+      await page.locator('#guess-map').click({ position: { x: 80, y: 80 } });
+      await page.locator('#guess-btn').click();
+      await expect(page.locator('#result-screen')).toBeVisible();
+
+      // Round 1-4: "Next Round". Round 5: "See Final Score".
+      const nextBtn = page.locator('#next-btn');
+      await expect(nextBtn).toHaveText(round < 5 ? 'Next Round' : 'See Final Score');
+      await nextBtn.click();
+    }
+
+    // After round 5's "See Final Score" → end screen with bucket rating
+    await expect(page.locator('#end-screen')).toBeVisible();
+    await expect(page.locator('#final-score')).toContainText('/ 25,000');
+    const rating = (await page.locator('#final-rating').textContent())?.trim();
+    expect(rating && rating.length).toBeGreaterThan(0);
+
+    // All 5 hints should be unique — proves DEMO_ROUNDS is iterated per round.
+    expect(new Set(hints).size).toBe(5);
+
+    // Play Again → start screen, back in guest state
+    await page.locator('#restart-btn').click();
+    await expect(page.locator('#start-screen')).toBeVisible();
+    await expect(page.locator('#start-btn')).toHaveText('Start as guest');
+  });
+
+  test('Demo + timer toggle: timer HUD visible and starts at 60', async ({ page }) => {
+    await blockConfigJs(page);
+    await page.route('**/server.arcgisonline.com/**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+
+    await page.goto('/');
+    await page.locator('#timer-toggle').check();
+    await page.locator('#start-btn').click();
+
+    await expect(page.locator('#guest-placeholder')).toBeVisible();
+    await expect(page.locator('#timer-hud')).toBeVisible();
+    await expect(page.locator('#timer')).toHaveText('60');
+  });
 });

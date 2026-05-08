@@ -194,19 +194,20 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 
 ### Unit tests — [tests/test.js](tests/test.js)
 
-- Top of file: `lib.js` `require` + `locations.js` load via a `new Function` shim (because `locations.js` only declares `const LOCATIONS` for the browser, no module export)
+- Top of file: `lib.js` `require` + `locations.js` load via a `new Function` shim that returns both `LOCATIONS` and `REGIONS` (locations.js declares them as browser-script `const`s with no module export)
 - `group('haversineDistance', ...)` — zero, Paris↔London, NYC↔LA, antipodes, symmetry
 - `group('calculateScore', ...)` — exact hit, monotonicity, ~1000km ≈ 3000pts, huge→0, null/NaN/negative
 - `group('formatDistance', ...)` — sub-km, ≥1 km, null/undefined
 - `group('ratingFor', ...)` — bucket boundary cases
 - `group('LOCATIONS dataset', ...)` — shape, lat/lng ranges, no duplicate coords
+- `group('REGIONS dataset', ...)` — shape, valid bbox ranges, latMin < latMax / lngMin < lngMax (inverted bboxes would generate points outside the named region)
 
 ### E2E tests — [tests/e2e/](tests/e2e/)
 
 Playwright + Chromium. Server is auto-started via `webServer` config; pre-existing servers are reused.
 
-- [tests/e2e/smoke.spec.js](tests/e2e/smoke.spec.js) — start screen UX: title, button enable/disable, localStorage token persistence (no Mapillary calls)
-- [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) — full game flow with mocked Mapillary: Start → drop pin → Submit → result; plus timer-toggle HUD test
+- [tests/e2e/smoke.spec.js](tests/e2e/smoke.spec.js) — start-screen UX (Settings panel, token persistence) + the full guest/demo flow: round-1 single submit, full 5-round playthrough → end screen → restart, demo+timer combination, save-token upgrade button states
+- [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) — token-mode flows with mocked Mapillary: Start → drop pin → Submit → result, timer-toggle HUD, guest-saves-token-mid-demo upgrade
 - [playwright.config.mjs](playwright.config.mjs) — chromium-only, headless, `reuseExistingServer: true`
 
 ### Server — [server.js](server.js)

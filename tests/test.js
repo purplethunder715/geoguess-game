@@ -15,11 +15,12 @@ const locSrc = fs.readFileSync(
   path.join(__dirname, '..', 'public', 'locations.js'),
   'utf8',
 );
-let LOCATIONS;
+let LOCATIONS, REGIONS;
 {
   // Evaluate in a function scope so the `const` doesn't leak globally.
-
-  LOCATIONS = new Function(locSrc + '\nreturn LOCATIONS;')();
+  const exported = new Function(locSrc + '\nreturn { LOCATIONS, REGIONS };')();
+  LOCATIONS = exported.LOCATIONS;
+  REGIONS = exported.REGIONS;
 }
 
 let passed = 0,
@@ -160,6 +161,44 @@ group('LOCATIONS dataset', () => {
       const k = `${loc.lat.toFixed(4)},${loc.lng.toFixed(4)}`;
       assert.ok(!seen.has(k), `duplicate coords near ${loc.name}`);
       seen.add(k);
+    }
+  });
+});
+
+// ---------------- REGIONS dataset ------------------------------------------
+
+group('REGIONS dataset', () => {
+  test('has at least one region', () => {
+    assert.ok(Array.isArray(REGIONS));
+    assert.ok(REGIONS.length >= 1, `only ${REGIONS.length} regions`);
+  });
+
+  test('every region has valid name and bbox', () => {
+    for (const r of REGIONS) {
+      assert.ok(
+        typeof r.name === 'string' && r.name.length > 0,
+        `bad name: ${JSON.stringify(r)}`,
+      );
+      assert.ok(
+        r.latMin >= -90 && r.latMin <= 90,
+        `bad latMin in ${r.name}: ${r.latMin}`,
+      );
+      assert.ok(
+        r.latMax >= -90 && r.latMax <= 90,
+        `bad latMax in ${r.name}: ${r.latMax}`,
+      );
+      assert.ok(
+        r.lngMin >= -180 && r.lngMin <= 180,
+        `bad lngMin in ${r.name}: ${r.lngMin}`,
+      );
+      assert.ok(
+        r.lngMax >= -180 && r.lngMax <= 180,
+        `bad lngMax in ${r.name}: ${r.lngMax}`,
+      );
+      // pickFromRegions samples uniformly inside; an inverted bbox would
+      // generate points outside the named region.
+      assert.ok(r.latMin < r.latMax, `latMin >= latMax in ${r.name}`);
+      assert.ok(r.lngMin < r.lngMax, `lngMin >= lngMax in ${r.name}`);
     }
   });
 });
