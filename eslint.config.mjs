@@ -14,6 +14,8 @@ const browserGlobals = {
   setInterval: 'readonly',
   clearTimeout: 'readonly',
   clearInterval: 'readonly',
+  requestAnimationFrame: 'readonly',
+  cancelAnimationFrame: 'readonly',
   console: 'readonly',
   navigator: 'readonly',
 };

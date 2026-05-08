@@ -509,6 +509,18 @@ function initGuessMap() {
   panel.addEventListener('transitionend', () => {
     if (state.guessMap) state.guessMap.invalidateSize();
   });
+
+  // If the screen just transitioned in, the container's layout might not
+  // be computed yet — Leaflet would then cache 0x0 bounds and clicks would
+  // miss its internal hit-test. Re-invalidate on the next animation frame
+  // (after the browser has done at least one layout pass) and once more
+  // after that to cover slow CI runners. Cheap and idempotent.
+  requestAnimationFrame(() => {
+    if (state.guessMap) state.guessMap.invalidateSize();
+    requestAnimationFrame(() => {
+      if (state.guessMap) state.guessMap.invalidateSize();
+    });
+  });
 }
 
 // --- Timer -----------------------------------------------------------------
