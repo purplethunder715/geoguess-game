@@ -27,33 +27,37 @@
         </p>
         <p class="muted">5 rounds &middot; up to 5,000 points per round</p>
 
-        <div id="api-key-section">
-          <label for="api-key-input" class="field-label">
-            Mapillary access token
-            <a
-              href="https://www.mapillary.com/dashboard/developers"
-              target="_blank"
-              rel="noopener"
-              >get a free one</a
-            >
-          </label>
-          <input
-            id="api-key-input"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="MLY|..."
-          />
-          <p class="muted small">
-            Stored only in your browser (localStorage). Free signup, no billing card.
-          </p>
-        </div>
-
         <label class="toggle">
           <input type="checkbox" id="timer-toggle" />
           <span>60-second timer per round</span>
         </label>
-        <button id="start-btn" class="primary" disabled>Enter token to start</button>
+        <button id="start-btn" class="primary">Start Game</button>
+
+        <button type="button" id="settings-toggle" class="link-btn">⚙ Settings</button>
+        <div id="settings-panel" class="hidden">
+          <div id="api-key-section">
+            <label for="api-key-input" class="field-label">
+              Mapillary access token
+              <a
+                href="https://www.mapillary.com/dashboard/developers"
+                target="_blank"
+                rel="noopener"
+                >get a free one</a
+              >
+            </label>
+            <input
+              id="api-key-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="MLY|..."
+            />
+            <p class="muted small">
+              Stored only in your browser (localStorage). Free signup, no billing card.
+              Without a token you can still enter as a guest to see the layout.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -61,6 +65,26 @@
     <div id="game-screen" class="screen hidden">
       <div id="mapillary-viewer"></div>
       <div id="streetview-status" class="hidden">Looking for nearby imagery...</div>
+
+      <!-- Shown when the user enters without a Mapillary token. Replaces the
+           panorama with an explanation + back link. The guess map and HUD
+           still render so the layout is visible. -->
+      <div id="guest-placeholder" class="hidden">
+        <h2>Guest mode</h2>
+        <p>
+          You're seeing the layout. To play with real panoramas you need a free Mapillary
+          access token.
+        </p>
+        <p>
+          <a
+            href="https://www.mapillary.com/dashboard/developers"
+            target="_blank"
+            rel="noopener"
+            >Sign up for a free token →</a
+          >
+        </p>
+        <button type="button" id="back-to-start-btn">Back to start</button>
+      </div>
 
       <div id="hud">
         <div class="hud-item">Round <span id="round-num">1</span>/5</div>

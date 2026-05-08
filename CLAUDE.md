@@ -102,16 +102,16 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 - `MIN_SEQUENCE_SIZE` (4) — minimum panos-per-sequence for the "walkable" check (≥3 navigation arrows)
 - `CURATED_PROBABILITY` (0.4) — chance of picking from `CURATED_LOCATIONS` vs. region-random
 - `SATELLITE_TILES`, `LABELS_TILES` — Esri tile URL templates
-- `state` — global game state (round, score, viewer, both maps, `roundPool`, `usedIndices`, `gameRunning` kill switch)
+- `state` — global game state (round, score, viewer, both maps, `roundPool`, `usedIndices`, `gameRunning` kill switch, `guestMode` flag)
 - `showScreen(name)` — swap visible screen
 - `pickFromCurated()` — pick from `CURATED_LOCATIONS` with no-repeat tracking via `state.usedIndices`
 - `pickFromRegions()` — generate a random `{ lat, lng, name: "Somewhere in <country>" }` inside a `REGIONS` bbox
 - `pickRandomLocation()` — router: rolls `CURATED_PROBABILITY` and dispatches to one of the above
-- `startRound()` — increments round, defers map init via `setTimeout(..., 50)`
+- `startRound()` — increments round, defers map init via `setTimeout(..., 50)`. In `guestMode`, shows the guest placeholder + inits the guess map only (no Mapillary, no timer)
 - `submitGuess(timedOut)` — Haversine + score, drives result screen
 - `showResult(distance, points, timedOut)` — markers, dashed line, `fitBounds`
 - `endGame()` — flips `gameRunning` off (background prefetch loops bail), shows final score + rating bucket
-- `resetGame()` — flips `gameRunning` off **before** clearing state, so in-flight `prepareRound` loops exit on their next iteration
+- `resetGame()` — flips `gameRunning` off **before** clearing state, so in-flight `prepareRound` loops exit on their next iteration. Also clears `guestMode`, hides the guest placeholder, restores the timer HUD slot
 
 ### Mapillary integration — [public/game.js](public/game.js)
 
@@ -144,9 +144,11 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 
 End-of-file block under the comment `--- Start screen wiring ---`:
 
-- `refreshStartButton()` — enables Start once a ≥10-char token is present (typed or preset)
-- `presetToken` check — hides input section if a token is already available
-- `startBtn` click handler — saves typed token to localStorage, calls `primeRoundQueue` then `startRound`
+- `refreshStartButton()` — Start is **always enabled**; label is `"Start Game"` if a ≥10-char token is configured, else `"Start as guest"`
+- `presetToken` pre-fill — copies any saved/preset token into the Settings input so the user sees what's configured
+- `settingsToggle` click handler — toggles the `#settings-panel` (token entry + future per-user settings)
+- `startBtn` click handler — saves typed token to localStorage if changed; if a token resolves, calls `primeRoundQueue` for a normal game; otherwise sets `state.guestMode = true` and skips prefetch. Always calls `startRound`
+- `back-to-start-btn` (in the guest placeholder) — `resetGame` + back to start screen
 - `guess-btn`, `next-btn`, `restart-btn` listeners at file bottom
 
 ### Pure helpers — [public/lib.js](public/lib.js)
@@ -169,19 +171,23 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 
 - Four screens: `#start-screen`, `#game-screen`, `#result-screen`, `#end-screen`
 - HUD: `#hud`, `#round-num`, `#score`, `#timer-hud`, `#timer`
-- Start screen: `#api-key-section`, `#api-key-input`, `#timer-toggle`, `#start-btn`
+- Start screen: `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`
 - Mini-map panel: `#map-panel`, `#guess-map`, `#guess-btn`
 - Status overlay: `#streetview-status`
+- Guest-mode placeholder: `#guest-placeholder`, `#back-to-start-btn` — overlays the panorama area when entering without a token
 - **Script load order** at bottom: `leaflet → mapillary → config → lib → locations → game` — do not reorder
 
 ### Styles — [public/style.css](public/style.css)
 
 - `.screen` / `.hidden` — screen container + show/hide utility
 - `.card` — start/result/end card visual
+- `.link-btn` — link-styled `<button>` (used for `#settings-toggle`)
 - `#hud`, `.hud-item` — top-left HUD
 - `#map-panel`, `#map-panel:hover` — mini-map hover-to-expand (CSS transitions on `width`/`height` — paired with `invalidateSize` on `transitionend` in `initGuessMap`)
 - `.result-card` — overlay on result screen
 - `#mapillary-viewer`, `#result-map` — full-bleed canvases
+- `#settings-panel` — collapsible token-entry panel below the Start button
+- `#guest-placeholder` — full-bleed overlay on the panorama area in guest mode
 
 ### Unit tests — [tests/test.js](tests/test.js)
 
@@ -239,6 +245,12 @@ When adding new e2e tests, prefer reusing the helper. If you need a different mo
 **A curated city**: append `{ lat, lng, name: 'City, Country' }` to `CURATED_LOCATIONS` in [public/locations.js](public/locations.js). Pick spots with known Mapillary coverage (major cities NA/EU/JP/AU are reliable; sparser elsewhere). Tests check lat/lng ranges and coord uniqueness against the `LOCATIONS` alias.
 
 **A new region** (country bbox): append `{ name, latMin, latMax, lngMin, lngMax }` to `REGIONS`. Keep the bbox to land area only — `pickFromRegions` samples uniformly inside, so all-water or pure-desert bboxes burn batch attempts on guaranteed coverage misses (the infinite-retry loop handles this gracefully but it wastes API calls).
+
+## Guest mode (no token)
+
+The Mapillary token is **not gating** — the user can click Start at any time. With no token configured (`resolveToken()` returns `''`), the click handler sets `state.guestMode = true` and skips `primeRoundQueue` entirely (no Graph API calls, no pool, no timer). `startRound` then shows `#guest-placeholder` over the panorama area, inits the guess map (Esri tiles still work — Leaflet doesn't need a token), and leaves Submit disabled (`'Demo only — add a token in Settings'`). The placeholder's `#back-to-start-btn` calls `resetGame` + `showScreen('start')`.
+
+Future per-user auth (eventually) will populate the token via login, replacing the localStorage path. Until then, the Settings panel (`#settings-panel`, opened via the `⚙ Settings` link on the start screen) is where the token is entered. Don't add new gating UX in front of Start — guest mode is the contract.
 
 ## Token resolution order
 

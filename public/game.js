@@ -82,6 +82,10 @@ const state = {
   // forever and bail out via this flag when the game ends, so reset/restart
   // doesn't leave zombie API calls running.
   gameRunning: false,
+  // Set true when the user clicks Start without a Mapillary token. The game
+  // screen renders without panoramas (placeholder card) so the layout is
+  // visible. Submit stays disabled — there's no actual location to score.
+  guestMode: false,
 };
 
 function showScreen(name) {
@@ -447,14 +451,20 @@ function initGuessMap() {
 
   const btn = document.getElementById('guess-btn');
   btn.disabled = true;
-  btn.textContent = 'Place a pin to guess';
+  btn.textContent = state.guestMode
+    ? 'Demo only — add a token in Settings'
+    : 'Place a pin to guess';
 
   state.guessMap.on('click', (e) => {
     state.guessLatLng = e.latlng;
     if (state.guessMarker) state.guessMarker.setLatLng(e.latlng);
     else state.guessMarker = L.marker(e.latlng).addTo(state.guessMap);
-    btn.disabled = false;
-    btn.textContent = 'Submit Guess';
+    // Submit stays disabled in guest mode — there's no actual panorama to
+    // compare against, so a "guess" can't be scored.
+    if (!state.guestMode) {
+      btn.disabled = false;
+      btn.textContent = 'Submit Guess';
+    }
   });
 
   // The panel grows on hover via CSS transition. Leaflet doesn't notice
@@ -503,6 +513,19 @@ async function startRound() {
   document.getElementById('round-num').textContent = state.round;
   document.getElementById('score').textContent = state.score.toLocaleString();
   showScreen('game');
+
+  const placeholder = document.getElementById('guest-placeholder');
+  if (state.guestMode) {
+    placeholder.classList.remove('hidden');
+    // Hide the timer HUD entry — no countdown when there's nothing to time.
+    document.getElementById('timer-hud').style.display = 'none';
+    // Still init the guess map so the user can see / interact with it; just
+    // skip Mapillary prefetch and the timer.
+    setTimeout(() => initGuessMap(), 50);
+    return;
+  }
+
+  placeholder.classList.add('hidden');
   // Defer until after layout — Leaflet and Mapillary both need their
   // containers to have non-zero size to render correctly.
   setTimeout(async () => {
@@ -595,6 +618,10 @@ function resetGame() {
   state.guessMarker = null;
   state.usedIndices = [];
   state.roundPool = null;
+  state.guestMode = false;
+  document.getElementById('guest-placeholder').classList.add('hidden');
+  // Restore the timer HUD slot in case guest mode hid it.
+  document.getElementById('timer-hud').style.display = '';
 }
 
 // --- Start screen wiring (token + Start button) ----------------------------
@@ -603,31 +630,46 @@ const apiKeyInput = document.getElementById('api-key-input');
 const apiKeySection = document.getElementById('api-key-section');
 const startBtn = document.getElementById('start-btn');
 
+// Always enabled — a missing token routes through guest mode rather than
+// blocking entry. Label tells the user what they'll get.
 function refreshStartButton() {
-  const typed = (apiKeyInput.value || '').trim();
-  const key = typed || resolveToken();
-  startBtn.disabled = key.length < 10;
-  startBtn.textContent = key.length < 10 ? 'Enter token to start' : 'Start Game';
+  const key = (apiKeyInput.value || '').trim() || resolveToken();
+  startBtn.disabled = false;
+  startBtn.textContent = key.length >= 10 ? 'Start Game' : 'Start as guest';
 }
 
+// Pre-fill the input from any saved/preset token so the user sees what's
+// configured when they open Settings.
 const presetToken = resolveToken();
-if (presetToken) {
-  apiKeySection.classList.add('hidden');
-} else {
-  apiKeyInput.value = '';
-  apiKeyInput.addEventListener('input', refreshStartButton);
-}
+if (presetToken) apiKeyInput.value = presetToken;
+apiKeyInput.addEventListener('input', refreshStartButton);
 refreshStartButton();
+
+// Settings panel toggle. Hidden by default; the API key + future
+// per-user settings live behind it.
+const settingsToggle = document.getElementById('settings-toggle');
+const settingsPanel = document.getElementById('settings-panel');
+settingsToggle.addEventListener('click', () => {
+  settingsPanel.classList.toggle('hidden');
+});
 
 startBtn.addEventListener('click', () => {
   const typed = (apiKeyInput.value || '').trim();
-  const key = typed || resolveToken();
-  if (!key) return;
-  if (typed) localStorage.setItem(TOKEN_STORAGE, typed);
+  // Save typed token so the next session resolves it without reopening Settings.
+  if (typed && typed !== resolveToken()) {
+    localStorage.setItem(TOKEN_STORAGE, typed);
+  }
 
   state.timerEnabled = document.getElementById('timer-toggle').checked;
   resetGame();
-  primeRoundQueue(); // fire all 5 lookups now, in parallel
+
+  const key = resolveToken();
+  if (key.length >= 10) {
+    primeRoundQueue();
+  } else {
+    // No token → enter as guest. startRound branches on this.
+    state.guestMode = true;
+  }
   startRound();
 });
 
@@ -641,6 +683,13 @@ document.getElementById('next-btn').addEventListener('click', () => {
 document.getElementById('restart-btn').addEventListener('click', () => {
   resetGame();
   showScreen('start');
-  apiKeySection.classList.add('hidden');
+  refreshStartButton();
+});
+
+// Guest-mode "Back to start" — exits the game screen without going through
+// result/end (which would need a real round to be meaningful).
+document.getElementById('back-to-start-btn').addEventListener('click', () => {
+  resetGame();
+  showScreen('start');
   refreshStartButton();
 });

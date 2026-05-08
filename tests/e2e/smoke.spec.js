@@ -1,10 +1,10 @@
-// Smoke tests: page load, token UX, localStorage persistence.
-// No Mapillary or Esri calls — these run before any "Start" click.
+// Smoke tests: page load, token UX, settings panel, guest-mode entry,
+// localStorage persistence. No real Mapillary or Esri calls anywhere.
 const { test, expect } = require('@playwright/test');
 
 // public/config.js is gitignored and may hold a real token on a developer's
-// machine. For the "no preset token" tests we have to neuter it so the
-// start screen shows the input no matter who's running the suite.
+// machine. For "no preset token" tests we neuter it so the start screen
+// behaves as it would for a guest who hasn't configured anything.
 async function blockConfigJs(page) {
   await page.route('**/config.js', (route) =>
     route.fulfill({
@@ -16,38 +16,68 @@ async function blockConfigJs(page) {
 }
 
 test.describe('Start screen', () => {
-  test('loads with title and disabled Start button', async ({ page }) => {
+  test('loads with title and an always-enabled Start button', async ({ page }) => {
     await blockConfigJs(page);
     await page.goto('/');
     await expect(page).toHaveTitle('GeoGuess');
     await expect(page.locator('h1').first()).toContainText('GeoGuess');
 
     const startBtn = page.locator('#start-btn');
-    await expect(startBtn).toBeDisabled();
-    await expect(startBtn).toHaveText('Enter token to start');
+    await expect(startBtn).toBeEnabled();
+    // No token configured → guest-entry label.
+    await expect(startBtn).toHaveText('Start as guest');
   });
 
-  test('Start button enables once token has 10+ chars', async ({ page }) => {
+  test('Start button label flips to "Start Game" once token is 10+ chars', async ({
+    page,
+  }) => {
     await blockConfigJs(page);
     await page.goto('/');
-    const input = page.locator('#api-key-input');
     const startBtn = page.locator('#start-btn');
 
+    // Open settings to reach the input.
+    await page.locator('#settings-toggle').click();
+    const input = page.locator('#api-key-input');
+
     await input.fill('short');
-    await expect(startBtn).toBeDisabled();
+    await expect(startBtn).toHaveText('Start as guest');
+    await expect(startBtn).toBeEnabled();
 
     await input.fill('MLY|abc123def456');
-    await expect(startBtn).toBeEnabled();
     await expect(startBtn).toHaveText('Start Game');
+    await expect(startBtn).toBeEnabled();
   });
 
-  test('preset token in localStorage hides the input section', async ({ page }) => {
+  test('Settings toggle shows/hides the token panel', async ({ page }) => {
+    await blockConfigJs(page);
+    await page.goto('/');
+
+    const panel = page.locator('#settings-panel');
+    await expect(panel).toBeHidden();
+
+    await page.locator('#settings-toggle').click();
+    await expect(panel).toBeVisible();
+    await expect(page.locator('#api-key-input')).toBeVisible();
+
+    await page.locator('#settings-toggle').click();
+    await expect(panel).toBeHidden();
+  });
+
+  test('preset token pre-fills the Settings input and gives "Start Game" label', async ({
+    page,
+  }) => {
     await page.addInitScript(() => {
       localStorage.setItem('geoguess.mapillaryToken', 'MLY|preset-token-here');
     });
     await page.goto('/');
-    await expect(page.locator('#api-key-section')).toBeHidden();
-    await expect(page.locator('#start-btn')).toBeEnabled();
+
+    await expect(page.locator('#start-btn')).toHaveText('Start Game');
+    // Settings stays collapsed by default — token is just available to use.
+    await expect(page.locator('#settings-panel')).toBeHidden();
+
+    // When the user opens Settings, the input is pre-filled with the token.
+    await page.locator('#settings-toggle').click();
+    await expect(page.locator('#api-key-input')).toHaveValue('MLY|preset-token-here');
   });
 
   test('typed token persists to localStorage on Start', async ({ page }) => {
@@ -68,6 +98,7 @@ test.describe('Start screen', () => {
     });
 
     await page.goto('/');
+    await page.locator('#settings-toggle').click();
     await page.locator('#api-key-input').fill('MLY|user-typed-token');
     await page.locator('#start-btn').click();
 
@@ -75,5 +106,53 @@ test.describe('Start screen', () => {
       localStorage.getItem('geoguess.mapillaryToken'),
     );
     expect(stored).toBe('MLY|user-typed-token');
+  });
+});
+
+test.describe('Guest mode', () => {
+  test('Start without a token shows the guest placeholder on the game screen', async ({
+    page,
+  }) => {
+    await blockConfigJs(page);
+    // Block Esri so the guess map doesn't burn CDN bandwidth in CI; Leaflet
+    // still handles the layout. (No Mapillary calls fire — guest mode skips
+    // primeRoundQueue entirely.)
+    await page.route('**/server.arcgisonline.com/**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+
+    await page.goto('/');
+    await expect(page.locator('#start-btn')).toHaveText('Start as guest');
+    await page.locator('#start-btn').click();
+
+    await expect(page.locator('#game-screen')).toBeVisible();
+    await expect(page.locator('#guest-placeholder')).toBeVisible();
+    await expect(page.locator('#guest-placeholder h2')).toHaveText('Guest mode');
+
+    // Submit stays locked even after a pin drop — there's no actual location.
+    const guessBtn = page.locator('#guess-btn');
+    await expect(guessBtn).toBeDisabled();
+    await expect(guessBtn).toContainText('Demo only');
+
+    // Timer HUD slot is hidden in guest mode (no countdown to show).
+    await expect(page.locator('#timer-hud')).toBeHidden();
+  });
+
+  test('Back-to-start from guest placeholder returns to start screen', async ({
+    page,
+  }) => {
+    await blockConfigJs(page);
+    await page.route('**/server.arcgisonline.com/**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+
+    await page.goto('/');
+    await page.locator('#start-btn').click();
+    await expect(page.locator('#guest-placeholder')).toBeVisible();
+
+    await page.locator('#back-to-start-btn').click();
+    await expect(page.locator('#start-screen')).toBeVisible();
+    await expect(page.locator('#game-screen')).toBeHidden();
+    await expect(page.locator('#guest-placeholder')).toBeHidden();
   });
 });

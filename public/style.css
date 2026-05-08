@@ -237,3 +237,69 @@ button.primary:disabled {
 .leaflet-container {
   background: #1a202c;
 }
+
+/* Settings toggle (link-styled button) on the start screen */
+.link-btn {
+  background: none;
+  border: none;
+  color: #4ade80;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 14px;
+  padding: 4px 8px;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+#settings-panel {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Guest-mode placeholder card overlaying the panorama on the game screen */
+#guest-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px;
+  text-align: center;
+  background: rgba(14, 17, 22, 0.95);
+  z-index: 5;
+}
+#guest-placeholder h2 {
+  font-size: 28px;
+  color: #4ade80;
+}
+#guest-placeholder p {
+  max-width: 480px;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+#guest-placeholder a {
+  color: #4ade80;
+  text-decoration: none;
+}
+#guest-placeholder a:hover {
+  text-decoration: underline;
+}
+#guest-placeholder button {
+  margin-top: 8px;
+  background: #4ade80;
+  color: #0e1116;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#guest-placeholder button:hover {
+  transform: translateY(-1px);
+}
