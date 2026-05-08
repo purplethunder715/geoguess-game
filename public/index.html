@@ -67,23 +67,33 @@
       <div id="streetview-status" class="hidden">Looking for nearby imagery...</div>
 
       <!-- Shown when the user enters without a Mapillary token. Replaces the
-           panorama with an explanation + back link. The guess map and HUD
-           still render so the layout is visible. -->
+           panorama with an explanation + a token entry form so the user can
+           upgrade in place without bouncing back to the start screen. -->
       <div id="guest-placeholder" class="hidden">
         <h2>Guest mode</h2>
         <p>
           You're seeing the layout. To play with real panoramas you need a free Mapillary
-          access token.
-        </p>
-        <p>
+          access token —
           <a
             href="https://www.mapillary.com/dashboard/developers"
             target="_blank"
             rel="noopener"
-            >Sign up for a free token →</a
+            >sign up here →</a
           >
         </p>
-        <button type="button" id="back-to-start-btn">Back to start</button>
+        <div class="guest-token-form">
+          <input
+            id="guest-token-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="MLY|...paste your token"
+          />
+          <button type="button" id="guest-save-btn" disabled>Save & play</button>
+        </div>
+        <button type="button" id="back-to-start-btn" class="link-btn">
+          Back to start
+        </button>
       </div>
 
       <div id="hud">

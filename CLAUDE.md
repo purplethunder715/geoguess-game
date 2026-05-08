@@ -149,6 +149,7 @@ End-of-file block under the comment `--- Start screen wiring ---`:
 - `settingsToggle` click handler — toggles the `#settings-panel` (token entry + future per-user settings)
 - `startBtn` click handler — saves typed token to localStorage if changed; if a token resolves, calls `primeRoundQueue` for a normal game; otherwise sets `state.guestMode = true` and skips prefetch. Always calls `startRound`
 - `back-to-start-btn` (in the guest placeholder) — `resetGame` + back to start screen
+- `guest-save-btn` (in the guest placeholder) — paste-then-save upgrade path: writes the typed token to localStorage, syncs the start-screen Settings input, then `resetGame` + `primeRoundQueue` + `startRound` for a normal game. Disabled until the input has 10+ chars
 - `guess-btn`, `next-btn`, `restart-btn` listeners at file bottom
 
 ### Pure helpers — [public/lib.js](public/lib.js)
@@ -174,7 +175,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - Start screen: `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`
 - Mini-map panel: `#map-panel`, `#guess-map`, `#guess-btn`
 - Status overlay: `#streetview-status`
-- Guest-mode placeholder: `#guest-placeholder`, `#back-to-start-btn` — overlays the panorama area when entering without a token
+- Guest-mode placeholder: `#guest-placeholder`, `#guest-token-input`, `#guest-save-btn`, `#back-to-start-btn` — overlays the panorama area when entering without a token; in-place token entry so the user can upgrade without bouncing back to the start screen
 - **Script load order** at bottom: `leaflet → mapillary → config → lib → locations → game` — do not reorder
 
 ### Styles — [public/style.css](public/style.css)
@@ -188,6 +189,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `#mapillary-viewer`, `#result-map` — full-bleed canvases
 - `#settings-panel` — collapsible token-entry panel below the Start button
 - `#guest-placeholder` — full-bleed overlay on the panorama area in guest mode
+- `.guest-token-form`, `#guest-token-input`, `#guest-save-btn` — inline token entry inside the placeholder (the upgrade path)
 
 ### Unit tests — [tests/test.js](tests/test.js)
 
@@ -248,9 +250,16 @@ When adding new e2e tests, prefer reusing the helper. If you need a different mo
 
 ## Guest mode (no token)
 
-The Mapillary token is **not gating** — the user can click Start at any time. With no token configured (`resolveToken()` returns `''`), the click handler sets `state.guestMode = true` and skips `primeRoundQueue` entirely (no Graph API calls, no pool, no timer). `startRound` then shows `#guest-placeholder` over the panorama area, inits the guess map (Esri tiles still work — Leaflet doesn't need a token), and leaves Submit disabled (`'Demo only — add a token in Settings'`). The placeholder's `#back-to-start-btn` calls `resetGame` + `showScreen('start')`.
+The Mapillary token is **not gating** — the user can click Start at any time. With no token configured (`resolveToken()` returns `''`), the click handler sets `state.guestMode = true` and skips `primeRoundQueue` entirely (no Graph API calls, no pool, no timer). `startRound` then shows `#guest-placeholder` over the panorama area, inits the guess map (Esri tiles still work — Leaflet doesn't need a token), and leaves Submit disabled (`'Demo only — add a token in Settings'`).
 
-Future per-user auth (eventually) will populate the token via login, replacing the localStorage path. Until then, the Settings panel (`#settings-panel`, opened via the `⚙ Settings` link on the start screen) is where the token is entered. Don't add new gating UX in front of Start — guest mode is the contract.
+The placeholder offers two exits:
+
+- **`#guest-save-btn` ("Save & play")** — the upgrade path. Paste a token into `#guest-token-input` (button enables at ≥10 chars), click Save: writes to localStorage, syncs the start-screen Settings input, calls `resetGame` + `primeRoundQueue` + `startRound` for a normal game.
+- **`#back-to-start-btn`** — `resetGame` + back to start screen.
+
+There are now two equivalent token-entry points (start-screen Settings panel, in-place guest form). They both write to the same localStorage key and `apiKeyInput.value` is kept in sync between them.
+
+Future per-user auth (eventually) will populate the token via login, replacing the localStorage path. Don't add new gating UX in front of Start — guest mode is the contract.
 
 ## Token resolution order
 

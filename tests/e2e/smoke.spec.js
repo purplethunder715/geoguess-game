@@ -155,4 +155,27 @@ test.describe('Guest mode', () => {
     await expect(page.locator('#game-screen')).toBeHidden();
     await expect(page.locator('#guest-placeholder')).toBeHidden();
   });
+
+  test('Guest "Save & play" button stays disabled until token is 10+ chars', async ({
+    page,
+  }) => {
+    await blockConfigJs(page);
+    await page.route('**/server.arcgisonline.com/**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+
+    await page.goto('/');
+    await page.locator('#start-btn').click();
+
+    const input = page.locator('#guest-token-input');
+    const save = page.locator('#guest-save-btn');
+
+    await expect(save).toBeDisabled();
+
+    await input.fill('short');
+    await expect(save).toBeDisabled();
+
+    await input.fill('MLY|abc123def456');
+    await expect(save).toBeEnabled();
+  });
 });

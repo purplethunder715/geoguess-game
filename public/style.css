@@ -289,17 +289,42 @@ button.primary:disabled {
 #guest-placeholder a:hover {
   text-decoration: underline;
 }
-#guest-placeholder button {
+.guest-token-form {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 480px;
   margin-top: 8px;
+}
+#guest-token-input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.3);
+  color: #e6e8ea;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+#guest-token-input:focus {
+  outline: none;
+  border-color: #4ade80;
+}
+#guest-save-btn {
   background: #4ade80;
   color: #0e1116;
   border: none;
   padding: 10px 20px;
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
-#guest-placeholder button:hover {
+#guest-save-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#guest-save-btn:hover:not(:disabled) {
   transform: translateY(-1px);
 }

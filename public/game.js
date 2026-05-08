@@ -693,3 +693,24 @@ document.getElementById('back-to-start-btn').addEventListener('click', () => {
   showScreen('start');
   refreshStartButton();
 });
+
+// Guest-mode "Save & play" — the upgrade path from guest to real player
+// without bouncing back to the start screen. Saves the typed token to
+// localStorage, syncs the start-screen Settings input so the two views
+// agree, then kicks off a fresh game with full Mapillary prefetch.
+const guestTokenInput = document.getElementById('guest-token-input');
+const guestSaveBtn = document.getElementById('guest-save-btn');
+guestTokenInput.addEventListener('input', () => {
+  guestSaveBtn.disabled = guestTokenInput.value.trim().length < 10;
+});
+guestSaveBtn.addEventListener('click', () => {
+  const typed = guestTokenInput.value.trim();
+  if (typed.length < 10) return;
+  localStorage.setItem(TOKEN_STORAGE, typed);
+  apiKeyInput.value = typed; // keep the start-screen Settings input in sync
+
+  state.timerEnabled = document.getElementById('timer-toggle').checked;
+  resetGame();
+  primeRoundQueue();
+  startRound();
+});

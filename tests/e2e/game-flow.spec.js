@@ -89,4 +89,73 @@ test.describe('Game flow (mocked Mapillary)', () => {
     // Should start at ROUND_SECONDS = 60
     await expect(page.locator('#timer')).toHaveText('60');
   });
+
+  test('Guest can save a token in-place and the real game starts', async ({ page }) => {
+    // Same mocks as the happy path, but DO NOT preset a token. The user
+    // arrives as a guest, sees the placeholder, then upgrades from there.
+    await page.route('**/unpkg.com/mapillary-js@**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+    await page.route('**/server.arcgisonline.com/**', (route) =>
+      route.fulfill({ status: 200, body: '' }),
+    );
+    await page.route('**/graph.mapillary.com/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [
+            { id: 'mock-1', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+            { id: 'mock-2', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+            { id: 'mock-3', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+            { id: 'mock-4', geometry: { coordinates: PARIS }, sequence: 'mock-seq' },
+          ],
+        }),
+      }),
+    );
+    await page.route('**/config.js', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: 'const MAPILLARY_TOKEN = "";',
+      }),
+    );
+    await page.addInitScript(() => {
+      window.mapillary = {
+        Viewer: class {
+          constructor() {}
+          moveTo() {
+            return Promise.resolve();
+          }
+          remove() {}
+        },
+      };
+    });
+
+    await page.goto('/');
+    await expect(page.locator('#start-btn')).toHaveText('Start as guest');
+    await page.locator('#start-btn').click();
+
+    // Land in guest mode
+    await expect(page.locator('#guest-placeholder')).toBeVisible();
+
+    // Paste a token + save → real game starts, placeholder hides
+    await page.locator('#guest-token-input').fill('MLY|guest-paste-token');
+    await page.locator('#guest-save-btn').click();
+
+    await expect(page.locator('#guest-placeholder')).toBeHidden();
+    await expect(page.locator('#round-num')).toHaveText('1');
+
+    // Submit becomes available after a pin drop (no longer "Demo only")
+    await page.locator('#guess-map').click({ position: { x: 80, y: 80 } });
+    const guessBtn = page.locator('#guess-btn');
+    await expect(guessBtn).toBeEnabled();
+    await expect(guessBtn).toHaveText('Submit Guess');
+
+    // Token persisted to localStorage for next session
+    const stored = await page.evaluate(() =>
+      localStorage.getItem('geoguess.mapillaryToken'),
+    );
+    expect(stored).toBe('MLY|guest-paste-token');
+  });
 });
