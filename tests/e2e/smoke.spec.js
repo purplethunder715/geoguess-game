@@ -130,6 +130,10 @@ test.describe('Guest mode', () => {
     await expect(page.locator('#guest-placeholder h2')).toContainText('Demo round');
     await expect(page.locator('#demo-round-num')).toHaveText('1');
 
+    // Hint must be populated — a guess without any clue isn't a game.
+    const hint = await page.locator('#demo-hint').textContent();
+    expect(hint && hint.trim().length).toBeGreaterThan(0);
+
     // Submit is initially "Place a pin" disabled, then enables after a pin
     // drop — same flow as a real round, just against canned demo data.
     const guessBtn = page.locator('#guess-btn');

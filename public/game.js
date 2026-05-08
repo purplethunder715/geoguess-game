@@ -57,15 +57,41 @@ const MIN_SEQUENCE_SIZE = 4;
 // Hardcoded rounds for guest mode. The Mapillary SDK can't render without
 // a real token, so the panorama area stays a placeholder card — but every
 // other code path (guess map, timer, scoring, result, end) runs through
-// the production flow with these as the "actual point". Picked as famous
-// landmarks so result-screen markers visually reinforce that scoring is
-// against a real coordinate pair.
+// the production flow with these as the "actual point". Each round carries
+// a textual hint so the user has something to guess from in the absence
+// of a panorama. Hints are evocative but should NOT contain the city or
+// country name (otherwise it's not a guess).
 const DEMO_ROUNDS = [
-  { lat: 48.8584, lng: 2.2945, name: 'Eiffel Tower, Paris, France' },
-  { lat: 40.6892, lng: -74.0445, name: 'Statue of Liberty, New York, USA' },
-  { lat: -33.8568, lng: 151.2153, name: 'Sydney Opera House, Australia' },
-  { lat: 35.6586, lng: 139.7454, name: 'Tokyo Tower, Japan' },
-  { lat: 51.5007, lng: -0.1246, name: 'Big Ben, London, UK' },
+  {
+    lat: 48.8584,
+    lng: 2.2945,
+    name: 'Eiffel Tower, Paris, France',
+    hint: "The world's most-visited paid monument, a wrought-iron lattice tower built for an 1889 World's Fair.",
+  },
+  {
+    lat: 40.6892,
+    lng: -74.0445,
+    name: 'Statue of Liberty, New York, USA',
+    hint: 'A copper-clad gift from one country to another, standing on an island in a major harbor on the East Coast of North America.',
+  },
+  {
+    lat: -33.8568,
+    lng: 151.2153,
+    name: 'Sydney Opera House, Australia',
+    hint: 'A sail-shaped performing-arts venue on a harbor in the Southern Hemisphere — designed by a Danish architect, completed in 1973.',
+  },
+  {
+    lat: 35.6586,
+    lng: 139.7454,
+    name: 'Tokyo Tower, Japan',
+    hint: 'An orange-and-white lattice tower in East Asia, finished in 1958 and modelled on the Eiffel Tower but slightly taller.',
+  },
+  {
+    lat: 51.5007,
+    lng: -0.1246,
+    name: 'Big Ben, London, UK',
+    hint: "Technically the name of the great bell inside, not the clock tower itself — but everyone calls the whole landmark by it. Sits beside a famous river in Britain's capital.",
+  },
 ];
 
 // Esri's free satellite tile layer + a labels overlay (looks like Google
@@ -530,6 +556,7 @@ async function startRound() {
     placeholder.classList.remove('hidden');
     document.getElementById('demo-round-num').textContent = state.round;
     const demo = DEMO_ROUNDS[state.round - 1];
+    document.getElementById('demo-hint').textContent = demo.hint;
     state.currentLocation = demo;
     state.actualPoint = { lat: demo.lat, lng: demo.lng };
     setTimeout(() => {

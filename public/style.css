@@ -289,6 +289,22 @@ button.primary:disabled {
 #guest-placeholder a:hover {
   text-decoration: underline;
 }
+.demo-hint-line {
+  font-size: 16px;
+  line-height: 1.55;
+  color: #e6e8ea !important;
+  background: rgba(74, 222, 128, 0.08);
+  border-left: 3px solid #4ade80;
+  padding: 12px 14px;
+  border-radius: 4px;
+  text-align: left;
+  max-width: 540px;
+}
+.demo-hint-line strong {
+  color: #4ade80;
+  margin-right: 4px;
+}
+
 .guest-token-form {
   display: flex;
   gap: 8px;

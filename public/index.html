@@ -72,18 +72,15 @@
            DEMO_ROUNDS data so the user can evaluate the full UX. -->
       <div id="guest-placeholder" class="hidden">
         <h2>Demo round <span id="demo-round-num">1</span> of 5</h2>
-        <p>
-          You're playing demo mode — no real panoramas, but the gameplay works. Drop a pin
-          on the map below and Submit to see where you actually were.
-        </p>
-        <p>
-          For real panoramas, get a free Mapillary token —
-          <a
+        <p class="demo-hint-line"><strong>Hint:</strong> <span id="demo-hint"></span></p>
+        <p class="muted small">
+          Drop a pin on the map below and Submit. Demo mode runs the full gameplay against
+          fixed locations — for real panoramas, paste a Mapillary token below (<a
             href="https://www.mapillary.com/dashboard/developers"
             target="_blank"
             rel="noopener"
-            >sign up here →</a
-          >
+            >sign up free</a
+          >).
         </p>
         <div class="guest-token-form">
           <input

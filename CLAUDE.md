@@ -100,7 +100,7 @@ Symbol names are stable anchors — Ctrl+F or Grep them in the listed file. Avoi
 - `MAX_CONSECUTIVE_HTTP_BATCHES` (20) — abort threshold; coverage misses reset, only HTTP / network failures count
 - `BACKOFF_BASE_MS` (1500), `BACKOFF_MAX_MS` (30000) — exponential backoff between HTTP-failure batches
 - `MIN_SEQUENCE_SIZE` (4) — minimum panos-per-sequence for the "walkable" check (≥3 navigation arrows)
-- `DEMO_ROUNDS` — 5 hardcoded `{ lat, lng, name }` famous-landmark entries used by guest/demo mode in lieu of real Mapillary data; powers the full gameplay flow without API calls
+- `DEMO_ROUNDS` — 5 hardcoded `{ lat, lng, name, hint }` famous-landmark entries used by guest/demo mode in lieu of real Mapillary data; powers the full gameplay flow without API calls. Hints are evocative but **must not contain the city or country name** — that would defeat the guessing
 - `CURATED_PROBABILITY` (0.4) — chance of picking from `CURATED_LOCATIONS` vs. region-random
 - `SATELLITE_TILES`, `LABELS_TILES` — Esri tile URL templates
 - `state` — global game state (round, score, viewer, both maps, `roundPool`, `usedIndices`, `gameRunning` kill switch, `guestMode` flag)
@@ -176,7 +176,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - Start screen: `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`
 - Mini-map panel: `#map-panel`, `#guess-map`, `#guess-btn`
 - Status overlay: `#streetview-status`
-- Demo-mode placeholder: `#guest-placeholder`, `#demo-round-num`, `#guest-token-input`, `#guest-save-btn`, `#back-to-start-btn` — overlays the panorama area when entering without a token; shows demo round indicator + in-place token entry so the user can upgrade without bouncing back to the start screen
+- Demo-mode placeholder: `#guest-placeholder`, `#demo-round-num`, `#demo-hint`, `#guest-token-input`, `#guest-save-btn`, `#back-to-start-btn` — overlays the panorama area when entering without a token; shows demo round indicator + textual hint (substitutes for the panorama) + in-place token entry so the user can upgrade without bouncing back to the start screen
 - **Script load order** at bottom: `leaflet → mapillary → config → lib → locations → game` — do not reorder
 
 ### Styles — [public/style.css](public/style.css)
@@ -262,7 +262,7 @@ The demo path uses `DEMO_ROUNDS` (5 hardcoded famous landmarks) in place of pref
 - The result screen shows actual-vs-guess markers + dashed line + distance.
 - Round counter increments, end screen reaches `ratingFor(state.score)`.
 
-The only thing missing is the actual panorama — the Mapillary SDK requires a real token, so the panorama area stays a placeholder card showing "Demo round X of 5" + the upgrade prompt.
+The only thing missing is the actual panorama — the Mapillary SDK requires a real token, so the panorama area stays a placeholder card showing "Demo round X of 5", a textual hint that substitutes for the visual clues a panorama would give (`#demo-hint`, populated from `DEMO_ROUNDS[round-1].hint`), and the upgrade prompt.
 
 The placeholder offers two exits:
 
