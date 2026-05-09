@@ -134,6 +134,10 @@ const state = {
   // (clamped to MIN..MAX). Drives prefetch sizing, round-end transitions,
   // and final-score display. Default until then is DEFAULT_ROUNDS_PER_GAME.
   roundsPerGame: DEFAULT_ROUNDS_PER_GAME,
+  // Selected location-pool mode: 'random' (default — region-random with a
+  // 15% curated sprinkle) or 'capitals' (only world capitals, from the
+  // CAPITAL_LOCATIONS subset). Set on Start click from #mode-select.
+  gameMode: 'random',
   currentLocation: null,
   actualPoint: null, // {lat, lng} of the panorama Mapillary actually returned
   guessLatLng: null,
@@ -174,18 +178,23 @@ function showScreen(name) {
 }
 
 // Probability of picking from the curated city list vs. a random point
-// inside a country bbox. Curated picks are reliable (recognizable name,
-// guaranteed Mapillary coverage); region picks add huge variety.
-const CURATED_PROBABILITY = 0.4;
+// inside a country bbox in `random` mode. Was 0.4 — Brady reported every
+// round felt like a capital, since curated leans heavily on famous /
+// capital cities and 40% was enough to dominate. 0.15 keeps the curated
+// path as a sprinkle of recognizable spots without monopolizing.
+const CURATED_PROBABILITY = 0.15;
 
-function pickFromCurated() {
-  if (state.usedIndices.length >= CURATED_LOCATIONS.length) state.usedIndices = [];
+// Pick from a list of curated entries with no-repeat tracking against
+// `state.usedIndices`. Used for both "all curated" (random mode's curated
+// branch) and "capitals only" (capitals mode).
+function pickFromList(list) {
+  if (state.usedIndices.length >= list.length) state.usedIndices = [];
   let idx;
   do {
-    idx = Math.floor(Math.random() * CURATED_LOCATIONS.length);
+    idx = Math.floor(Math.random() * list.length);
   } while (state.usedIndices.includes(idx));
   state.usedIndices.push(idx);
-  return CURATED_LOCATIONS[idx];
+  return list[idx];
 }
 
 function pickFromRegions() {
@@ -197,8 +206,18 @@ function pickFromRegions() {
   };
 }
 
+// Pre-compute the capitals subset once so 'capitals' mode doesn't filter
+// the full curated list every pick.
+const CAPITAL_LOCATIONS = CURATED_LOCATIONS.filter((l) => l.isCapital);
+
 function pickRandomLocation() {
-  return Math.random() < CURATED_PROBABILITY ? pickFromCurated() : pickFromRegions();
+  if (state.gameMode === 'capitals') {
+    return pickFromList(CAPITAL_LOCATIONS);
+  }
+  // 'random' mode (default): mostly region-random, occasional curated.
+  return Math.random() < CURATED_PROBABILITY
+    ? pickFromList(CURATED_LOCATIONS)
+    : pickFromRegions();
 }
 
 // --- Mapillary token resolution --------------------------------------------
@@ -305,11 +324,28 @@ async function findGoogleStreetView(lat, lng, key) {
 }
 
 // Reverse-geocode a lat/lng using Google's Geocoder. Returns
-//   { display: '<city>, <country>' | '<country>', countryCode: 'DE', ... }
+//   { display: '<place>, <country>' | '<country>', countryCode: 'DE', ... }
 // or null if the Geocoding API isn't enabled / the request fails / no
 // usable components. The countryCode (ISO 3166-1 alpha-2) is the stable
 // match key for the country bonus — country `long_name` strings drift
 // (e.g. "Czech Republic" vs "Czechia") but country codes don't.
+//
+// For the display label we walk a priority list of place types from most
+// specific (a small village's `locality` or `sublocality`) up to broader
+// administrative areas. Without this, rural results that lack a
+// `locality` component would silently fall through to Google's next
+// returned result — typically the nearest *major* city — making every
+// rural French round read as "Paris, France" etc.
+const PLACE_TYPE_PRIORITY = [
+  'locality',
+  'postal_town', // UK uses this in place of `locality`
+  'sublocality_level_1',
+  'sublocality',
+  'administrative_area_level_3',
+  'administrative_area_level_2',
+  'administrative_area_level_1',
+];
+
 async function reverseGeocode(lat, lng, key) {
   if (!key) return null;
   try {
@@ -326,25 +362,32 @@ async function reverseGeocode(lat, lng, key) {
         resolve(null);
         return;
       }
-      let locality = null;
-      let country = null;
-      let countryCode = null;
+      // Collect components by type from across the result list, keeping
+      // only the first occurrence of each type. results[0] is the most
+      // specific, so this naturally favours the closest place.
+      const components = {};
       for (const r of results) {
         for (const c of r.address_components || []) {
-          if (!locality && c.types.includes('locality')) locality = c.long_name;
-          if (!country && c.types.includes('country')) {
-            country = c.long_name;
-            countryCode = c.short_name;
+          for (const type of c.types) {
+            if (!components[type]) components[type] = c;
           }
         }
-        if (locality && country) break;
       }
+      const country = components.country?.long_name || null;
+      const countryCode = components.country?.short_name || null;
       if (!country) {
         resolve(null);
         return;
       }
+      let placeName = null;
+      for (const type of PLACE_TYPE_PRIORITY) {
+        if (components[type]) {
+          placeName = components[type].long_name;
+          break;
+        }
+      }
       resolve({
-        display: locality ? `${locality}, ${country}` : country,
+        display: placeName ? `${placeName}, ${country}` : country,
         country,
         countryCode,
       });
@@ -1077,8 +1120,13 @@ startBtn.addEventListener('click', () => {
       Number.isFinite(rawRounds) ? rawRounds : DEFAULT_ROUNDS_PER_GAME,
     ),
   );
+  // Read game-mode select. Falls through to 'random' on any unknown value.
+  const modeSelect = document.getElementById('mode-select');
+  const mode = modeSelect && modeSelect.value === 'capitals' ? 'capitals' : 'random';
+
   resetGame();
   state.roundsPerGame = clamped;
+  state.gameMode = mode;
   // Reflect in the HUD (Round X/<total>) and demo placeholder.
   const roundTotalEl = document.getElementById('round-total');
   if (roundTotalEl) roundTotalEl.textContent = clamped;
