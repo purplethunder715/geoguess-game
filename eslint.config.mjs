@@ -78,6 +78,7 @@ export default [
         calculateScore: 'readonly',
         formatDistance: 'readonly',
         ratingFor: 'readonly',
+        applyCountryBonus: 'readonly',
       },
     },
   },

@@ -148,6 +148,11 @@ const state = {
   // Race-based pool of prefetched rounds. take() returns whichever lookup
   // resolves first, not whichever was queued first. See createRoundPool().
   roundPool: null,
+  // ISO 3166-1 alpha-2 country code of the current round's actual photo,
+  // populated when a Google key is available (via reverseGeocode). Used
+  // by submitGuess to award the country-bonus when the user's pin is in
+  // the same country. Null if Geocoding isn't enabled or failed.
+  actualCountryCode: null,
   // Set true while a game is in progress. Background prefetches loop
   // forever and bail out via this flag when the game ends, so reset/restart
   // doesn't leave zombie API calls running.
@@ -299,13 +304,12 @@ async function findGoogleStreetView(lat, lng, key) {
   });
 }
 
-// Reverse-geocode a lat/lng to a "<city>, <country>" string using Google's
-// Geocoder. Used to label region-picked rounds with the actual city the
-// panorama lives in (e.g. "Berlin, Germany" instead of "Somewhere in Austria"
-// when the random point landed near a border or Google snapped further
-// than the bbox). Returns null if the Geocoding API isn't enabled, the
-// request fails, or the result has no usable components — caller falls
-// back to the original picked name.
+// Reverse-geocode a lat/lng using Google's Geocoder. Returns
+//   { display: '<city>, <country>' | '<country>', countryCode: 'DE', ... }
+// or null if the Geocoding API isn't enabled / the request fails / no
+// usable components. The countryCode (ISO 3166-1 alpha-2) is the stable
+// match key for the country bonus — country `long_name` strings drift
+// (e.g. "Czech Republic" vs "Czechia") but country codes don't.
 async function reverseGeocode(lat, lng, key) {
   if (!key) return null;
   try {
@@ -318,19 +322,20 @@ async function reverseGeocode(lat, lng, key) {
     geo.geocode({ location: { lat, lng } }, (results, status) => {
       if (status !== 'OK' || !Array.isArray(results) || results.length === 0) {
         // REQUEST_DENIED most commonly means the Geocoding API isn't
-        // enabled on the project. Gracefully give up and let the caller
-        // use the picked-name fallback.
+        // enabled on the project. Gracefully give up.
         resolve(null);
         return;
       }
-      // Walk the results, prefer one with a `locality` (city) component.
-      // Google returns a list ordered most-specific to least-specific.
       let locality = null;
       let country = null;
+      let countryCode = null;
       for (const r of results) {
         for (const c of r.address_components || []) {
           if (!locality && c.types.includes('locality')) locality = c.long_name;
-          if (!country && c.types.includes('country')) country = c.long_name;
+          if (!country && c.types.includes('country')) {
+            country = c.long_name;
+            countryCode = c.short_name;
+          }
         }
         if (locality && country) break;
       }
@@ -338,7 +343,11 @@ async function reverseGeocode(lat, lng, key) {
         resolve(null);
         return;
       }
-      resolve(locality ? `${locality}, ${country}` : country);
+      resolve({
+        display: locality ? `${locality}, ${country}` : country,
+        country,
+        countryCode,
+      });
     });
   });
 }
@@ -529,11 +538,12 @@ async function attemptOneLocation(mapillaryToken) {
     if (googleImage) {
       // Reverse-geocode the actual panorama coords (which may differ from
       // the requested point) so the result screen shows the city the
-      // photo's actually in, not the random region we queried from. If
-      // the Geocoding API isn't enabled or fails, geocoded === null and
-      // we fall back to the picked-region name.
+      // photo's actually in, not the random region we queried from. The
+      // countryCode is the match key for the country bonus on submit.
       const geocoded = await reverseGeocode(googleImage.lat, googleImage.lng, googleKey);
-      const labeled = geocoded ? { ...loc, name: geocoded } : loc;
+      const labeled = geocoded
+        ? { ...loc, name: geocoded.display, countryCode: geocoded.countryCode }
+        : loc;
       return { loc: labeled, image: googleImage, source: 'google' };
     }
     // No Google coverage at this point; fall through to Mapillary. Real
@@ -544,7 +554,20 @@ async function attemptOneLocation(mapillaryToken) {
 
   const mapillaryImage = await findMapillaryImage(loc.lat, loc.lng, mapillaryToken);
   if (!mapillaryImage) throw new Error(`No imagery near ${loc.name}`);
-  return { loc, image: mapillaryImage, source: 'mapillary' };
+  // If a Google key is available, also geocode the Mapillary result so the
+  // country bonus + nicer label still work on the fallback path.
+  let labeled = loc;
+  if (googleKey) {
+    const geocoded = await reverseGeocode(
+      mapillaryImage.lat,
+      mapillaryImage.lng,
+      googleKey,
+    );
+    if (geocoded) {
+      labeled = { ...loc, name: geocoded.display, countryCode: geocoded.countryCode };
+    }
+  }
+  return { loc: labeled, image: mapillaryImage, source: 'mapillary' };
 }
 
 // Tells whether an error from attemptOneLocation looks like an HTTP/network
@@ -715,6 +738,7 @@ async function showPrefetchedRound() {
   // Use the actual photo coords for scoring — they may be a few hundred
   // meters off the city center we queried with.
   state.actualPoint = { lat: result.image.lat, lng: result.image.lng };
+  state.actualCountryCode = result.loc.countryCode || null;
   showImageInViewer(result.image, result.source, resolveToken());
 }
 
@@ -865,10 +889,11 @@ async function startRound() {
   });
 }
 
-function submitGuess(timedOut = false) {
+async function submitGuess(timedOut = false) {
   stopTimer();
   let distance = null;
-  let points = 0;
+  let distancePoints = 0;
+  let countryBonus = 0;
   if (state.guessLatLng && state.actualPoint) {
     distance = haversineDistance(
       state.guessLatLng.lat,
@@ -876,13 +901,35 @@ function submitGuess(timedOut = false) {
       state.actualPoint.lat,
       state.actualPoint.lng,
     );
-    points = calculateScore(distance);
+    distancePoints = calculateScore(distance);
+
+    // Country bonus: only when we have an actual-side country code (set by
+    // reverseGeocode in attemptOneLocation when a Google key is available)
+    // AND the Geocoder is reachable to resolve the guess's country.
+    if (state.actualCountryCode) {
+      const googleKey = resolveGoogleKey();
+      if (googleKey) {
+        try {
+          const guessGeo = await reverseGeocode(
+            state.guessLatLng.lat,
+            state.guessLatLng.lng,
+            googleKey,
+          );
+          const sameCountry =
+            !!guessGeo && guessGeo.countryCode === state.actualCountryCode;
+          countryBonus = applyCountryBonus(distancePoints, sameCountry);
+        } catch (_) {
+          // Geocoder failure → no bonus, fall through silently.
+        }
+      }
+    }
   }
+  const points = distancePoints + countryBonus;
   state.score += points;
-  showResult(distance, points, timedOut);
+  showResult(distance, points, timedOut, countryBonus);
 }
 
-function showResult(distance, points, timedOut) {
+function showResult(distance, points, timedOut, countryBonus = 0) {
   showScreen('result');
 
   setTimeout(() => {
@@ -922,6 +969,18 @@ function showResult(distance, points, timedOut) {
       : `You were ${formatDistance(distance)} away`;
   document.getElementById('result-location').textContent = state.currentLocation.name;
 
+  // Country-bonus indicator. Shown only when a non-zero bonus was awarded;
+  // otherwise hidden so the result card stays compact.
+  const bonusEl = document.getElementById('result-bonus');
+  if (bonusEl) {
+    if (countryBonus > 0) {
+      bonusEl.textContent = `🌍 +${countryBonus} country bonus`;
+      bonusEl.classList.remove('hidden');
+    } else {
+      bonusEl.classList.add('hidden');
+    }
+  }
+
   document.getElementById('next-btn').textContent =
     state.round >= state.roundsPerGame ? 'See Final Score' : 'Next Round';
 }
@@ -945,6 +1004,7 @@ function resetGame() {
   state.score = 0;
   state.currentLocation = null;
   state.actualPoint = null;
+  state.actualCountryCode = null;
   state.guessLatLng = null;
   state.guessMarker = null;
   state.usedIndices = [];

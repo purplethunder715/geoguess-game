@@ -27,6 +27,14 @@ function formatDistance(km) {
   return `${Math.round(km).toLocaleString()} km`;
 }
 
+// Country-match bonus added on top of the haversine score when the user's
+// guess lands in the same country as the actual photo. Capped so
+// `distancePoints + bonus` never exceeds `maxPerRound` (default 5000).
+function applyCountryBonus(distancePoints, sameCountry, bonus = 50, maxPerRound = 5000) {
+  if (!sameCountry) return 0;
+  return Math.max(0, Math.min(bonus, maxPerRound - distancePoints));
+}
+
 // Final-game rating buckets keyed off the score-as-fraction-of-max so the
 // thresholds scale with `roundsPerGame`. Default `maxScore` of 25000 keeps
 // the legacy 5-round numbers intact for the existing unit tests.
@@ -42,5 +50,11 @@ function ratingFor(totalScore, maxScore = 25000) {
 
 // Dual export: CommonJS for Node tests, window globals for the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversineDistance, calculateScore, formatDistance, ratingFor };
+  module.exports = {
+    haversineDistance,
+    calculateScore,
+    formatDistance,
+    ratingFor,
+    applyCountryBonus,
+  };
 }

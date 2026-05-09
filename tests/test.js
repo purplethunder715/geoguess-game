@@ -4,9 +4,13 @@
 const assert = require('assert');
 const path = require('path');
 
-const { haversineDistance, calculateScore, formatDistance, ratingFor } = require(
-  path.join('..', 'public', 'lib.js'),
-);
+const {
+  haversineDistance,
+  calculateScore,
+  formatDistance,
+  ratingFor,
+  applyCountryBonus,
+} = require(path.join('..', 'public', 'lib.js'));
 
 // Load locations.js by reading + evaluating it. It defines `const LOCATIONS`,
 // which we surface via a wrapping `module.exports = LOCATIONS` shim.
@@ -148,6 +152,35 @@ group('ratingFor', () => {
   test('zero or negative max defaults to lowest bucket', () => {
     assert.strictEqual(ratingFor(100, 0), 'Keep exploring!');
     assert.strictEqual(ratingFor(100, -1), 'Keep exploring!');
+  });
+});
+
+// ---------------- applyCountryBonus ----------------------------------------
+
+group('applyCountryBonus', () => {
+  test('zero when countries differ', () => {
+    assert.strictEqual(applyCountryBonus(3000, false), 0);
+    assert.strictEqual(applyCountryBonus(0, false), 0);
+  });
+
+  test('full bonus when score has headroom under cap', () => {
+    assert.strictEqual(applyCountryBonus(3000, true), 50);
+    assert.strictEqual(applyCountryBonus(0, true), 50);
+    assert.strictEqual(applyCountryBonus(4949, true), 50);
+  });
+
+  test('clamps so total never exceeds 5000', () => {
+    assert.strictEqual(applyCountryBonus(4990, true), 10);
+    assert.strictEqual(applyCountryBonus(5000, true), 0);
+    // calculateScore can return at most 5000, but be defensive against
+    // future caller bugs that pass something higher.
+    assert.strictEqual(applyCountryBonus(5500, true), 0);
+  });
+
+  test('honours custom bonus + maxPerRound parameters', () => {
+    // 100-point bonus capped at 6000-per-round.
+    assert.strictEqual(applyCountryBonus(5000, true, 100, 6000), 100);
+    assert.strictEqual(applyCountryBonus(5950, true, 100, 6000), 50);
   });
 });
 
