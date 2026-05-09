@@ -26,7 +26,11 @@ npm run lint:fix   # eslint --fix + prettier --write
 
 A "meaningful change" is anything that produces a code or config change, or a documented decision. Pure clarifying-question turns don't qualify.
 
-The mandates run in order. Don't skip ahead — each step assumes the previous one passed. Don't add extra "safety" steps either: don't re-run tests after lint, don't pull before push. If `git push` is rejected because remote is ahead, deal with that conflict _then_ (which may reset the flow because there's new code to retest — that's fine).
+The mandates run in order: **code → test → lint/prettier → commit/push**. The order matters because:
+
+- Tests can force code changes (failure → fix → re-test loop). Running lint _before_ tests would mean lint-checking code you're about to throw away.
+- Lint/prettier fixes are formatting-only — they cannot change runtime behavior, so there's no need to re-run tests after them. Just fix and move on.
+- Pulling is **not** part of the flow. Don't pull before push as a "safety step." If `git push` is rejected because remote is ahead, deal with that conflict _then_ (which may reset the flow because there's new code to retest — that's fine).
 
 ### 1. CLAUDE.md is self-updating
 
@@ -51,9 +55,11 @@ If your change makes anything in this file stale or missing — new symbols, cha
 
 ### 4. Lint + format fixes
 
-- After tests pass: `npm run lint:fix` (runs `eslint . --fix` then `prettier --write .`).
-- No test re-run needed afterward — formatting/lint changes don't affect runtime behavior.
-- If eslint reports unfixable errors, address them before moving on.
+Run **last**, right before commit. Specifically: only after tests are green and you're sure no more code changes are coming. Lint-before-test would re-run on every test-induced code change; lint-after-test runs once.
+
+- `npm run lint:fix` (runs `eslint . --fix` then `prettier --write .`).
+- **Do not re-run tests afterward.** Formatting/lint changes can't affect runtime behavior, and the re-run would just burn time. Move straight to commit.
+- If eslint reports unfixable errors, address them before moving on (those _are_ code changes — fix, then loop back through tests).
 
 ### 5. Commit + push
 
