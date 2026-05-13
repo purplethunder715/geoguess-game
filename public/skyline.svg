@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Two-layer city skyline rendered behind the start / end screens.
+     `xMidYMax slice` anchors it to the bottom center and crops the
+     sides on narrow viewports so the silhouette feels grounded. The
+     far layer is lifted in opacity to feel like atmospheric haze; the
+     near layer is nearly black with a sprinkle of warm window lights. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 360" preserveAspectRatio="xMidYMax slice">
+  <!-- Far skyline (back layer, slightly bluer + softer) -->
+  <g fill="#1a2536" opacity="0.6">
+    <rect x="0" y="240" width="180" height="120" />
+    <rect x="100" y="220" width="60" height="140" />
+    <rect x="170" y="200" width="120" height="160" />
+    <rect x="280" y="220" width="80" height="140" />
+    <rect x="360" y="190" width="140" height="170" />
+    <rect x="500" y="210" width="60" height="150" />
+    <rect x="560" y="180" width="90" height="180" />
+    <rect x="650" y="200" width="120" height="160" />
+    <rect x="770" y="170" width="80" height="190" />
+    <rect x="850" y="190" width="100" height="170" />
+    <rect x="950" y="180" width="70" height="180" />
+    <rect x="1020" y="200" width="100" height="160" />
+    <rect x="1120" y="190" width="80" height="170" />
+    <rect x="1200" y="220" width="120" height="140" />
+    <rect x="1320" y="210" width="90" height="150" />
+    <rect x="1410" y="200" width="70" height="160" />
+    <rect x="1480" y="220" width="120" height="140" />
+    <rect x="1600" y="210" width="80" height="150" />
+    <rect x="1680" y="200" width="100" height="160" />
+    <rect x="1780" y="230" width="140" height="130" />
+  </g>
+
+  <!-- Near skyline (front layer, dark) -->
+  <g fill="#070d14">
+    <rect x="0" y="300" width="100" height="60" />
+    <rect x="80" y="270" width="80" height="90" />
+    <rect x="140" y="250" width="100" height="110" />
+    <rect x="220" y="230" width="60" height="130" />
+
+    <!-- Clock tower (Big Ben-ish, gives the silhouette a recognizable
+         anchor without being too literal). -->
+    <rect x="290" y="160" width="40" height="200" />
+    <rect x="295" y="190" width="30" height="30" fill="#1a2536" />
+    <polygon points="290,160 310,120 330,160" />
+
+    <rect x="350" y="210" width="80" height="150" />
+    <rect x="430" y="230" width="60" height="130" />
+    <rect x="490" y="190" width="100" height="170" />
+
+    <!-- Tall central tower cluster -->
+    <rect x="600" y="90" width="60" height="270" />
+    <rect x="660" y="130" width="40" height="230" />
+
+    <rect x="710" y="210" width="90" height="150" />
+    <rect x="800" y="190" width="70" height="170" />
+    <rect x="870" y="170" width="80" height="190" />
+
+    <!-- Cathedral/dome (St Paul's-ish) -->
+    <rect x="960" y="230" width="100" height="130" />
+    <ellipse cx="1010" cy="230" rx="50" ry="35" />
+    <rect x="1005" y="180" width="10" height="60" />
+
+    <rect x="1080" y="210" width="60" height="150" />
+    <rect x="1140" y="190" width="90" height="170" />
+    <rect x="1230" y="210" width="60" height="150" />
+
+    <!-- Modern skyscraper cluster -->
+    <rect x="1300" y="130" width="80" height="230" />
+    <rect x="1380" y="110" width="60" height="250" />
+    <rect x="1440" y="150" width="70" height="210" />
+    <rect x="1510" y="190" width="80" height="170" />
+
+    <rect x="1590" y="210" width="80" height="150" />
+    <rect x="1670" y="230" width="100" height="130" />
+    <rect x="1770" y="210" width="80" height="150" />
+    <rect x="1850" y="250" width="80" height="110" />
+  </g>
+
+  <!-- Window lights — small warm rectangles, varied opacity to hint
+       at depth + occupancy without being too uniform. -->
+  <g fill="#fbbf24">
+    <rect x="100" y="295" width="2" height="4" opacity="0.7" />
+    <rect x="125" y="305" width="2" height="4" opacity="0.85" />
+    <rect x="170" y="265" width="2" height="4" opacity="0.6" />
+    <rect x="195" y="280" width="2" height="4" opacity="0.8" />
+    <rect x="230" y="250" width="2" height="4" opacity="0.7" />
+    <rect x="250" y="270" width="2" height="4" opacity="0.85" />
+    <rect x="302" y="195" width="2" height="3" opacity="0.95" />
+    <rect x="316" y="225" width="2" height="3" opacity="0.7" />
+    <rect x="370" y="250" width="2" height="4" opacity="0.7" />
+    <rect x="400" y="270" width="2" height="4" opacity="0.85" />
+    <rect x="510" y="225" width="2" height="4" opacity="0.7" />
+    <rect x="550" y="265" width="2" height="4" opacity="0.8" />
+    <rect x="620" y="150" width="2" height="4" opacity="0.9" />
+    <rect x="640" y="200" width="2" height="4" opacity="0.7" />
+    <rect x="675" y="180" width="2" height="4" opacity="0.85" />
+    <rect x="730" y="245" width="2" height="4" opacity="0.7" />
+    <rect x="820" y="225" width="2" height="4" opacity="0.85" />
+    <rect x="890" y="205" width="2" height="4" opacity="0.7" />
+    <rect x="980" y="265" width="2" height="4" opacity="0.7" />
+    <rect x="1100" y="245" width="2" height="4" opacity="0.85" />
+    <rect x="1180" y="220" width="2" height="4" opacity="0.7" />
+    <rect x="1320" y="170" width="2" height="4" opacity="0.95" />
+    <rect x="1390" y="150" width="2" height="4" opacity="0.85" />
+    <rect x="1460" y="190" width="2" height="4" opacity="0.75" />
+    <rect x="1530" y="225" width="2" height="4" opacity="0.7" />
+    <rect x="1610" y="245" width="2" height="4" opacity="0.85" />
+    <rect x="1700" y="265" width="2" height="4" opacity="0.7" />
+    <rect x="1790" y="245" width="2" height="4" opacity="0.85" />
+  </g>
+</svg>
