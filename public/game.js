@@ -1212,6 +1212,27 @@ document.getElementById('restart-btn').addEventListener('click', () => {
   refreshStartButton();
 });
 
+// Google sign-in placeholder. The real OAuth flow isn't wired up yet —
+// clicking just shows a "coming soon" modal. Backdrop click and the
+// "Got it" button both dismiss; Escape closes too, for keyboard parity.
+const signinModal = document.getElementById('signin-modal');
+function openSigninModal() {
+  signinModal.classList.remove('hidden');
+}
+function closeSigninModal() {
+  signinModal.classList.add('hidden');
+}
+document.getElementById('google-signin-btn').addEventListener('click', openSigninModal);
+document.getElementById('signin-modal-close').addEventListener('click', closeSigninModal);
+signinModal.querySelectorAll('[data-close-modal]').forEach((el) => {
+  el.addEventListener('click', closeSigninModal);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !signinModal.classList.contains('hidden')) {
+    closeSigninModal();
+  }
+});
+
 // Guest-mode "Back to start" — exits the game screen without going through
 // result/end (which would need a real round to be meaningful).
 document.getElementById('back-to-start-btn').addEventListener('click', () => {

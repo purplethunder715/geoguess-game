@@ -585,6 +585,108 @@ button.primary:focus-visible {
   border-color: var(--border-strong) !important;
 }
 
+/* =====================================================================
+   Google sign-in placeholder + "coming soon" modal
+   ---------------------------------------------------------------------
+   Lives top-right of the start screen. Visually matches Google's
+   identity button (white-ish pill, multicolor G logo) but in a dark
+   variant that fits the rest of the UI.
+   ===================================================================== */
+.google-signin-btn {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px 9px 12px;
+  background: linear-gradient(180deg, rgba(28, 40, 54, 0.95), rgba(16, 24, 34, 0.95));
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  transition:
+    transform var(--t-fast),
+    border-color var(--t-fast),
+    box-shadow var(--t-base),
+    filter var(--t-fast);
+}
+.google-signin-btn:hover {
+  filter: brightness(1.08);
+  border-color: rgba(255, 255, 255, 0.32);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.google-signin-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    0 0 0 3px var(--accent-glow);
+}
+.google-signin-btn svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Modal overlay shown when the placeholder button is clicked. The
+   backdrop dims the page and absorbs outside-clicks. The card sits
+   centered above all other UI (z-index higher than .result-card's
+   1000 so it works even from the result screen if we ever surface
+   the button there). */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 14, 0.7);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+.modal-card {
+  position: relative;
+  background: linear-gradient(180deg, rgba(22, 36, 47, 0.98), rgba(10, 18, 28, 0.98));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 32px 36px;
+  width: min(440px, 100%);
+  text-align: center;
+  box-shadow: var(--shadow-card-lift);
+}
+.modal-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+.modal-card h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+.modal-card p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+
 /* Custom result-map markers. Leaflet's default L.divIcon style adds a
    white background + grey border that would frame the SVG icons in an
    ugly box — strip those, then add a drop shadow so the markers feel
