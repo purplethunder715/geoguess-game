@@ -181,6 +181,11 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Plugin for drawing repeating arrowhead symbols along a polyline —
+         used by the result screen to indicate "from your guess to the
+         actual spot". Adds L.Symbol and L.polylineDecorator to the L
+         namespace; no new globals to declare. -->
+    <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
     <script src="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"></script>
     <script src="config.js"></script>
     <!-- Per-user local config (gitignored). Loads if it exists; the 404

@@ -984,18 +984,74 @@ function showResult(distance, points, timedOut, countryBonus = 0) {
     });
     buildSatelliteLayers(state.resultMap);
 
+    // Actual location: classic red map pin. iconAnchor at the tip so the
+    // point of the pin sits exactly on the photo's lat/lng; popupAnchor
+    // raises the bound popup above the pin head.
+    const actualIcon = L.divIcon({
+      className: 'geo-actual-marker',
+      html:
+        '<svg viewBox="0 0 32 44" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+        '<path d="M16 2C8 2 2 8 2 16c0 10 14 26 14 26s14-16 14-26c0-8-6-14-14-14z" ' +
+        'fill="#ef4444" stroke="#7f1d1d" stroke-width="1.5"/>' +
+        '<circle cx="16" cy="15" r="5.5" fill="#fff"/></svg>',
+      iconSize: [32, 44],
+      iconAnchor: [16, 42],
+      popupAnchor: [0, -38],
+    });
+
+    // Player's guess: Google-account-style circular avatar. Anchored at
+    // its center so it sits centered on the pin location.
+    const guessIcon = L.divIcon({
+      className: 'geo-guess-marker',
+      html:
+        '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+        '<circle cx="18" cy="18" r="16" fill="#4ade80" stroke="#06190d" stroke-width="2"/>' +
+        '<circle cx="18" cy="15" r="5" fill="#06190d"/>' +
+        '<path d="M7 30c2-6 7-8 11-8s9 2 11 8z" fill="#06190d"/></svg>',
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+    });
+
     const actual = [state.actualPoint.lat, state.actualPoint.lng];
-    L.marker(actual)
+    L.marker(actual, { icon: actualIcon })
       .addTo(state.resultMap)
       .bindPopup(state.currentLocation.name)
       .openPopup();
 
     if (state.guessLatLng) {
       const guess = [state.guessLatLng.lat, state.guessLatLng.lng];
-      L.marker(guess).addTo(state.resultMap);
-      L.polyline([guess, actual], { color: '#4ade80', dashArray: '6,8' }).addTo(
-        state.resultMap,
-      );
+      L.marker(guess, { icon: guessIcon }).addTo(state.resultMap);
+
+      // Faint base line keeps the connection visible even at zoom levels
+      // where the arrows are sparse; arrows ride on top to show direction
+      // from the guess toward the actual location.
+      const line = L.polyline([guess, actual], {
+        color: '#4ade80',
+        weight: 1.5,
+        opacity: 0.45,
+      }).addTo(state.resultMap);
+
+      L.polylineDecorator(line, {
+        patterns: [
+          {
+            // Skip the first/last few pixels so arrows don't crowd the
+            // markers. `repeat` is the gap between consecutive arrows.
+            offset: 24,
+            endOffset: 28,
+            repeat: 40,
+            symbol: L.Symbol.arrowHead({
+              pixelSize: 11,
+              polygon: false,
+              pathOptions: {
+                color: '#4ade80',
+                weight: 2.5,
+                opacity: 0.95,
+              },
+            }),
+          },
+        ],
+      }).addTo(state.resultMap);
+
       state.resultMap.fitBounds(L.latLngBounds([guess, actual]).pad(0.3));
     } else {
       state.resultMap.setView(actual, 4);
