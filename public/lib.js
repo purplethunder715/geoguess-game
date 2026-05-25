@@ -48,6 +48,58 @@ function ratingFor(totalScore, maxScore = 25000) {
   return 'Keep exploring!';
 }
 
+// ---------------------------------------------------------------------
+// Player stats — pure reducer over a localStorage-persisted object.
+// ---------------------------------------------------------------------
+
+// Shape of a fresh stats object. Kept here so both the reducer and any
+// reader agree on the schema.
+function emptyStats() {
+  return {
+    gamesPlayed: 0,
+    totalScore: 0,
+    bestScore: 0,
+    bestByRounds: {}, // { "5": 21000, "10": 38000, ... }
+    bestStreak: 0, // longest run of same-country guesses across all games
+    history: [], // most-recent-first list of { score, maxScore, rounds, mode, at }
+  };
+}
+
+// Merge one finished game into a stats object. Pure — returns a NEW object,
+// never mutates `prev`. `game` is { score, maxScore, rounds, mode, streak, at }.
+// Returns { stats, isBestEver, isBestForLength } so the caller can show a
+// "new personal best" badge.
+function updateStats(prev, game) {
+  const s = prev && typeof prev === 'object' ? prev : emptyStats();
+  const next = {
+    gamesPlayed: (s.gamesPlayed || 0) + 1,
+    totalScore: (s.totalScore || 0) + (game.score || 0),
+    bestScore: Math.max(s.bestScore || 0, game.score || 0),
+    bestByRounds: { ...(s.bestByRounds || {}) },
+    bestStreak: Math.max(s.bestStreak || 0, game.streak || 0),
+    history: [],
+  };
+  const key = String(game.rounds);
+  const prevForLength = (s.bestByRounds || {})[key] || 0;
+  next.bestByRounds[key] = Math.max(prevForLength, game.score || 0);
+
+  const entry = {
+    score: game.score || 0,
+    maxScore: game.maxScore || 0,
+    rounds: game.rounds || 0,
+    mode: game.mode || 'random',
+    at: game.at || Date.now(),
+  };
+  // Keep the 10 most recent games, newest first.
+  next.history = [entry, ...(Array.isArray(s.history) ? s.history : [])].slice(0, 10);
+
+  return {
+    stats: next,
+    isBestEver: (game.score || 0) > (s.bestScore || 0),
+    isBestForLength: (game.score || 0) > prevForLength,
+  };
+}
+
 // Dual export: CommonJS for Node tests, window globals for the browser.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -56,5 +108,7 @@ if (typeof module !== 'undefined' && module.exports) {
     formatDistance,
     ratingFor,
     applyCountryBonus,
+    emptyStats,
+    updateStats,
   };
 }

@@ -613,6 +613,25 @@ button.primary:focus-visible {
   letter-spacing: 0.2px;
 }
 
+/* Personal-best stats block on the end screen. */
+.end-stats {
+  margin: 16px 0 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.end-stats .best-badge {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #051a0c;
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent-deep));
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.3px;
+}
+
 /* =====================================================================
    Leaflet dark theme
    ===================================================================== */

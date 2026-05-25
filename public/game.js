@@ -984,6 +984,15 @@ async function submitGuess(timedOut = false) {
       }
     }
   }
+  // Track same-country streak for stats: bump on a country match, reset
+  // otherwise. state.bestStreak holds the longest run this game.
+  if (countryBonus > 0) {
+    state.countryStreak = (state.countryStreak || 0) + 1;
+    state.bestStreak = Math.max(state.bestStreak || 0, state.countryStreak);
+  } else {
+    state.countryStreak = 0;
+  }
+
   const points = distancePoints + countryBonus;
   state.score += points;
   showResult(distance, points, timedOut, countryBonus);
@@ -1120,6 +1129,41 @@ function endGame() {
   );
   document.getElementById('final-rating').textContent = ratingFor(state.score, maxScore);
   if (typeof Sounds !== 'undefined') Sounds.gameOver();
+  recordGameStats(maxScore);
+}
+
+// Persist the finished game into localStorage stats and surface the
+// personal-best lines on the end screen.
+const STATS_STORAGE = 'geoguess.stats';
+function recordGameStats(maxScore) {
+  let prev = null;
+  try {
+    prev = JSON.parse(localStorage.getItem(STATS_STORAGE) || 'null');
+  } catch (_) {
+    prev = null;
+  }
+  const { stats, isBestForLength } = updateStats(prev, {
+    score: state.score,
+    maxScore,
+    rounds: state.roundsPerGame,
+    mode: state.gameMode,
+    streak: state.bestStreak || 0,
+    at: Date.now(),
+  });
+  try {
+    localStorage.setItem(STATS_STORAGE, JSON.stringify(stats));
+  } catch (_) {
+    /* storage full / blocked — stats are best-effort */
+  }
+
+  const statsEl = document.getElementById('end-stats');
+  if (statsEl) {
+    const bestForLen = stats.bestByRounds[String(state.roundsPerGame)] || 0;
+    statsEl.innerHTML =
+      (isBestForLength ? '<span class="best-badge">🏆 New personal best!</span>' : '') +
+      `<div>Best (${state.roundsPerGame} rounds): ${bestForLen.toLocaleString()}</div>` +
+      `<div>Games played: ${stats.gamesPlayed} · Longest country streak: ${stats.bestStreak}</div>`;
+  }
 }
 
 function resetGame() {
@@ -1136,6 +1180,8 @@ function resetGame() {
   state.guessMarker = null;
   state.usedIndices = [];
   state.roundPool = null;
+  state.countryStreak = 0;
+  state.bestStreak = 0;
   state.guestMode = false;
   document.getElementById('guest-placeholder').classList.add('hidden');
   // Restore the timer HUD slot in case guest mode hid it.

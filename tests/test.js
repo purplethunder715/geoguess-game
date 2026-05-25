@@ -10,6 +10,8 @@ const {
   formatDistance,
   ratingFor,
   applyCountryBonus,
+  emptyStats,
+  updateStats,
 } = require(path.join('..', 'public', 'lib.js'));
 
 // Load locations.js by reading + evaluating it. It defines `const LOCATIONS`,
@@ -181,6 +183,63 @@ group('applyCountryBonus', () => {
     // 100-point bonus capped at 6000-per-round.
     assert.strictEqual(applyCountryBonus(5000, true, 100, 6000), 100);
     assert.strictEqual(applyCountryBonus(5950, true, 100, 6000), 50);
+  });
+});
+
+// ---------------- updateStats ----------------------------------------------
+
+group('updateStats', () => {
+  test('first game seeds counts from an empty/undefined prev', () => {
+    const { stats, isBestEver, isBestForLength } = updateStats(undefined, {
+      score: 12000,
+      maxScore: 25000,
+      rounds: 5,
+      mode: 'random',
+      streak: 2,
+      at: 1000,
+    });
+    assert.strictEqual(stats.gamesPlayed, 1);
+    assert.strictEqual(stats.totalScore, 12000);
+    assert.strictEqual(stats.bestScore, 12000);
+    assert.strictEqual(stats.bestByRounds['5'], 12000);
+    assert.strictEqual(stats.bestStreak, 2);
+    assert.strictEqual(stats.history.length, 1);
+    assert.ok(isBestEver && isBestForLength);
+  });
+
+  test('accumulates and tracks best-ever vs best-for-length separately', () => {
+    let { stats } = updateStats(undefined, {
+      score: 20000,
+      maxScore: 25000,
+      rounds: 5,
+      streak: 3,
+    });
+    // A lower-scoring 10-round game: not best-ever, but best for 10 rounds.
+    const r = updateStats(stats, { score: 18000, maxScore: 50000, rounds: 10, streak: 1 });
+    assert.strictEqual(r.stats.gamesPlayed, 2);
+    assert.strictEqual(r.stats.totalScore, 38000);
+    assert.strictEqual(r.stats.bestScore, 20000); // unchanged
+    assert.strictEqual(r.stats.bestByRounds['10'], 18000);
+    assert.strictEqual(r.stats.bestStreak, 3); // max(3,1)
+    assert.strictEqual(r.isBestEver, false);
+    assert.strictEqual(r.isBestForLength, true);
+  });
+
+  test('does not mutate the previous object (pure)', () => {
+    const prev = emptyStats();
+    const frozen = JSON.stringify(prev);
+    updateStats(prev, { score: 5000, maxScore: 25000, rounds: 5 });
+    assert.strictEqual(JSON.stringify(prev), frozen);
+  });
+
+  test('history is newest-first and capped at 10', () => {
+    let stats = emptyStats();
+    for (let i = 1; i <= 12; i++) {
+      stats = updateStats(stats, { score: i * 100, maxScore: 25000, rounds: 5, at: i }).stats;
+    }
+    assert.strictEqual(stats.history.length, 10);
+    assert.strictEqual(stats.history[0].at, 12); // newest first
+    assert.strictEqual(stats.gamesPlayed, 12);
   });
 });
 
