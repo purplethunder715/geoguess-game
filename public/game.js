@@ -226,13 +226,23 @@ function pickFromRegions() {
 const CAPITAL_LOCATIONS = CURATED_LOCATIONS.filter((l) => l.isCapital);
 
 function pickRandomLocation() {
-  if (state.gameMode === 'capitals') {
-    return pickFromList(CAPITAL_LOCATIONS);
+  switch (state.gameMode) {
+    case 'capitals':
+      // Only world capitals.
+      return pickFromList(CAPITAL_LOCATIONS);
+    case 'landmarks':
+      // Any curated famous city/landmark — recognizable spots only.
+      return pickFromList(CURATED_LOCATIONS);
+    case 'wild':
+      // Pure region-random, no curated sprinkle — hardest variety.
+      return pickFromRegions();
+    case 'random':
+    default:
+      // Mostly region-random, occasional curated for recognizability.
+      return Math.random() < CURATED_PROBABILITY
+        ? pickFromList(CURATED_LOCATIONS)
+        : pickFromRegions();
   }
-  // 'random' mode (default): mostly region-random, occasional curated.
-  return Math.random() < CURATED_PROBABILITY
-    ? pickFromList(CURATED_LOCATIONS)
-    : pickFromRegions();
 }
 
 // --- Mapillary token resolution --------------------------------------------
@@ -1252,7 +1262,9 @@ startBtn.addEventListener('click', () => {
   );
   // Read game-mode select. Falls through to 'random' on any unknown value.
   const modeSelect = document.getElementById('mode-select');
-  const mode = modeSelect && modeSelect.value === 'capitals' ? 'capitals' : 'random';
+  const VALID_MODES = ['random', 'capitals', 'landmarks', 'wild'];
+  const mode =
+    modeSelect && VALID_MODES.includes(modeSelect.value) ? modeSelect.value : 'random';
 
   resetGame();
   state.roundsPerGame = clamped;
