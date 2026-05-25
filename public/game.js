@@ -1320,7 +1320,89 @@ function openSigninModal() {
 function closeSigninModal() {
   signinModal.classList.add('hidden');
 }
-document.getElementById('google-signin-btn').addEventListener('click', openSigninModal);
+
+// Real Google sign-in is gated on an OAuth Client ID in config.local.js
+// (GOOGLE_OAUTH_CLIENT_ID). When absent — which is the case for everyone
+// until Brady sets one up — the button keeps the "coming soon" modal, so
+// this whole path is a no-op for the current shipped state.
+const OAUTH_STORAGE = 'geoguess.googleProfile';
+function resolveOAuthClientId() {
+  if (typeof GOOGLE_OAUTH_CLIENT_ID === 'string' && GOOGLE_OAUTH_CLIENT_ID.trim()) {
+    return GOOGLE_OAUTH_CLIENT_ID.trim();
+  }
+  return '';
+}
+
+// Decode the payload of a Google ID-token JWT (no verification — purely to
+// read display name + picture client-side for the avatar).
+function decodeJwtPayload(jwt) {
+  try {
+    const base64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(decodeURIComponent(escape(atob(base64))));
+  } catch (_) {
+    return null;
+  }
+}
+
+// Swap the sign-in button for the user's avatar + name.
+function renderSignedIn(profile) {
+  const btn = document.getElementById('google-signin-btn');
+  if (!btn || !profile) return;
+  btn.innerHTML =
+    `<img src="${profile.picture}" alt="" width="22" height="22" ` +
+    `style="border-radius:50%;display:block" referrerpolicy="no-referrer" />` +
+    `<span>${profile.name || 'Signed in'}</span>`;
+  btn.title = 'Click to sign out';
+  btn.onclick = () => {
+    localStorage.removeItem(OAUTH_STORAGE);
+    location.reload();
+  };
+}
+
+function startGoogleSignIn(clientId) {
+  const finish = (resp) => {
+    const profile = decodeJwtPayload(resp.credential);
+    if (!profile) return;
+    const slim = { name: profile.name, picture: profile.picture, sub: profile.sub };
+    localStorage.setItem(OAUTH_STORAGE, JSON.stringify(slim));
+    renderSignedIn(slim);
+  };
+  const go = () => {
+    google.accounts.id.initialize({ client_id: clientId, callback: finish });
+    google.accounts.id.prompt(); // one-tap / popup
+  };
+  if (window.google && window.google.accounts) {
+    go();
+    return;
+  }
+  // Lazy-load Google Identity Services.
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.async = true;
+  s.defer = true;
+  s.onload = go;
+  s.onerror = openSigninModal; // fall back to the modal if GIS can't load
+  document.head.appendChild(s);
+}
+
+// Restore a previously signed-in profile on load.
+(() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(OAUTH_STORAGE) || 'null');
+    if (saved) renderSignedIn(saved);
+  } catch (_) {
+    /* ignore */
+  }
+})();
+
+document.getElementById('google-signin-btn').addEventListener('click', () => {
+  const clientId = resolveOAuthClientId();
+  if (!clientId) {
+    openSigninModal(); // unchanged behavior when no OAuth ID is configured
+    return;
+  }
+  startGoogleSignIn(clientId);
+});
 document.getElementById('signin-modal-close').addEventListener('click', closeSigninModal);
 signinModal.querySelectorAll('[data-close-modal]').forEach((el) => {
   el.addEventListener('click', closeSigninModal);
