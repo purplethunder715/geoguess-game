@@ -177,6 +177,21 @@ function showScreen(name) {
   SCREENS[name].classList.remove('hidden');
 }
 
+// Animate a number counting up from 0 to `target` over ~700ms, writing
+// `format(value)` into `el` each frame. Eases out so it decelerates into
+// the final value. Used for the result-screen score for a bit of juice.
+function countUp(el, target, format) {
+  const duration = 700;
+  const start = performance.now();
+  function frame(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+    el.textContent = format(Math.round(target * eased));
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
 // Probability of picking from the curated city list vs. a random point
 // inside a country bbox in `random` mode. Was 0.4 — Brady reported every
 // round felt like a capital, since curated leans heavily on famous /
@@ -814,11 +829,13 @@ function initGuessMap() {
   btn.textContent = 'Place a pin to guess';
 
   state.guessMap.on('click', (e) => {
+    const firstDrop = !state.guessMarker;
     state.guessLatLng = e.latlng;
     if (state.guessMarker) state.guessMarker.setLatLng(e.latlng);
     else state.guessMarker = L.marker(e.latlng).addTo(state.guessMap);
     btn.disabled = false;
     btn.textContent = 'Submit Guess';
+    if (firstDrop && typeof Sounds !== 'undefined') Sounds.pin();
   });
 
   // The panel grows on hover via CSS transition. Leaflet doesn't notice
@@ -1058,8 +1075,15 @@ function showResult(distance, points, timedOut, countryBonus = 0) {
     }
   }, 50);
 
-  document.getElementById('result-title').textContent =
-    `+${points.toLocaleString()} points`;
+  // Animate the score counting up from 0 — a bit of "juice" so the points
+  // feel earned. Also fire the result sound (chord scales with the score).
+  countUp(
+    document.getElementById('result-title'),
+    points,
+    (v) => `+${v.toLocaleString()} points`,
+  );
+  if (typeof Sounds !== 'undefined') Sounds.roundResult(points);
+
   document.getElementById('result-distance').textContent =
     distance === null
       ? timedOut
@@ -1089,9 +1113,13 @@ function endGame() {
   state.gameRunning = false;
   showScreen('end');
   const maxScore = state.roundsPerGame * 5000;
-  document.getElementById('final-score').textContent =
-    `${state.score.toLocaleString()} / ${maxScore.toLocaleString()}`;
+  countUp(
+    document.getElementById('final-score'),
+    state.score,
+    (v) => `${v.toLocaleString()} / ${maxScore.toLocaleString()}`,
+  );
   document.getElementById('final-rating').textContent = ratingFor(state.score, maxScore);
+  if (typeof Sounds !== 'undefined') Sounds.gameOver();
 }
 
 function resetGame() {
@@ -1199,9 +1227,21 @@ startBtn.addEventListener('click', () => {
   startRound();
 });
 
-document.getElementById('guess-btn').addEventListener('click', () => submitGuess(false));
+document.getElementById('guess-btn').addEventListener('click', () => {
+  if (typeof Sounds !== 'undefined') Sounds.submit();
+  submitGuess(false);
+});
+
+// Sound on/off toggle on the start screen. Reflects the saved preference
+// and persists changes via Sounds.setOn (which also plays a confirm blip).
+const soundToggle = document.getElementById('sound-toggle');
+if (soundToggle && typeof Sounds !== 'undefined') {
+  soundToggle.checked = Sounds.isOn();
+  soundToggle.addEventListener('change', () => Sounds.setOn(soundToggle.checked));
+}
 
 document.getElementById('next-btn').addEventListener('click', () => {
+  if (typeof Sounds !== 'undefined') Sounds.click();
   if (state.round >= state.roundsPerGame) endGame();
   else startRound();
 });

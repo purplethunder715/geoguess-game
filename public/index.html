@@ -82,6 +82,11 @@
           <input type="checkbox" id="timer-toggle" />
           <span>60-second timer per round</span>
         </label>
+
+        <label class="toggle">
+          <input type="checkbox" id="sound-toggle" checked />
+          <span>Sound effects</span>
+        </label>
         <button id="start-btn" class="primary">Start Game</button>
 
         <button type="button" id="settings-toggle" class="link-btn">⚙ Settings</button>
@@ -238,6 +243,7 @@
          `typeof GOOGLE_MAPS_API_KEY === 'string'` to no-op when missing. -->
     <script src="config.local.js" onerror="this.remove()"></script>
     <script src="lib.js"></script>
+    <script src="sounds.js"></script>
     <script src="locations.js"></script>
     <script src="game.js"></script>
   </body>
