@@ -191,6 +191,10 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `calculateScore(km)` — `5000 * exp(-km/2000)`, rounded, ≥0
 - `formatDistance(km)` — `"50 m"` under 1 km, else rounded km
 - `ratingFor(totalScore)` — final-game bucket text
+- `applyCountryBonus(...)` — country-match bonus, capped at 5000/round
+- `updateStats(prev, game)` — pure reducer for the localStorage stats blob (`geoguess.stats`); returns `{ stats, isBestEver, isBestForLength }`. `recordGameStats` in game.js does the storage I/O
+
+**Every lib.js helper that game.js calls must also be listed in the `public/game.js` globals block of [eslint.config.mjs](eslint.config.mjs)** — otherwise `no-undef` fails lint (and CI). This slipped once with `updateStats`.
 
 ### Location dataset — [public/locations.js](public/locations.js)
 

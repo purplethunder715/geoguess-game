@@ -1146,7 +1146,7 @@ function endGame() {
 // personal-best lines on the end screen.
 const STATS_STORAGE = 'geoguess.stats';
 function recordGameStats(maxScore) {
-  let prev = null;
+  let prev;
   try {
     prev = JSON.parse(localStorage.getItem(STATS_STORAGE) || 'null');
   } catch (_) {

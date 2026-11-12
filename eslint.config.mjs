@@ -85,6 +85,7 @@ export default [
         formatDistance: 'readonly',
         ratingFor: 'readonly',
         applyCountryBonus: 'readonly',
+        updateStats: 'readonly',
       },
     },
   },

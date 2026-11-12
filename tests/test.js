@@ -215,7 +215,12 @@ group('updateStats', () => {
       streak: 3,
     });
     // A lower-scoring 10-round game: not best-ever, but best for 10 rounds.
-    const r = updateStats(stats, { score: 18000, maxScore: 50000, rounds: 10, streak: 1 });
+    const r = updateStats(stats, {
+      score: 18000,
+      maxScore: 50000,
+      rounds: 10,
+      streak: 1,
+    });
     assert.strictEqual(r.stats.gamesPlayed, 2);
     assert.strictEqual(r.stats.totalScore, 38000);
     assert.strictEqual(r.stats.bestScore, 20000); // unchanged
@@ -235,7 +240,12 @@ group('updateStats', () => {
   test('history is newest-first and capped at 10', () => {
     let stats = emptyStats();
     for (let i = 1; i <= 12; i++) {
-      stats = updateStats(stats, { score: i * 100, maxScore: 25000, rounds: 5, at: i }).stats;
+      stats = updateStats(stats, {
+        score: i * 100,
+        maxScore: 25000,
+        rounds: 5,
+        at: i,
+      }).stats;
     }
     assert.strictEqual(stats.history.length, 10);
     assert.strictEqual(stats.history[0].at, 12); // newest first
