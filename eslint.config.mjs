@@ -87,6 +87,7 @@ export default [
         applyCountryBonus: 'readonly',
         updateStats: 'readonly',
         samplePointInCountry: 'readonly',
+        randomPointInRing: 'readonly',
         COUNTRIES: 'readonly',
       },
     },

@@ -13,6 +13,7 @@ const {
   emptyStats,
   updateStats,
   samplePointInCountry,
+  randomPointInRing,
 } = require(path.join('..', 'public', 'lib.js'));
 
 // Load locations.js by reading + evaluating it. It defines `const LOCATIONS`,
@@ -352,6 +353,36 @@ group('COUNTRIES dataset', () => {
         `capital outside bbox: ${c.name}`,
       );
     }
+  });
+});
+
+// ---------------- randomPointInRing ------------------------------------------
+group('randomPointInRing', () => {
+  const MI = 1.609344;
+  test('points land 5–15 miles from the center (haversine-checked)', () => {
+    for (const [lat, lng] of [
+      [38.9, -77.04], // Washington
+      [64.15, -21.94], // Reykjavik (high latitude stretches lng degrees)
+      [-41.29, 174.78], // Wellington
+    ]) {
+      for (let i = 0; i < 500; i++) {
+        const p = randomPointInRing(lat, lng, 5 * MI, 15 * MI);
+        const d = haversineDistance(lat, lng, p.lat, p.lng);
+        assert.ok(d >= 5 * MI * 0.99 && d <= 15 * MI * 1.01, `distance ${d} km`);
+      }
+    }
+  });
+
+  test('rng extremes hit the inner and outer edge', () => {
+    const inner = randomPointInRing(0, 0, 8, 24, () => 0);
+    const outer = randomPointInRing(0, 0, 8, 24, () => 0.999999);
+    assert.ok(Math.abs(haversineDistance(0, 0, inner.lat, inner.lng) - 8) < 0.1);
+    assert.ok(Math.abs(haversineDistance(0, 0, outer.lat, outer.lng) - 24) < 0.1);
+  });
+
+  test('wraps longitude across the antimeridian', () => {
+    const p = randomPointInRing(-18.14, 179.99, 20, 20, () => 0.25); // due east
+    assert.ok(p.lng >= -180 && p.lng < -179, `lng ${p.lng}`);
   });
 });
 

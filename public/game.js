@@ -231,6 +231,13 @@ function pickFromRegions() {
   };
 }
 
+// Capitals mode starts each round somewhere in a 5–15 mile ring around the
+// capital's center (Brady's call, 2026-11): close enough that it's clearly
+// that city's area, far enough that it isn't always the same downtown block.
+const CAPITAL_MIN_MILES = 5;
+const CAPITAL_MAX_MILES = 15;
+const KM_PER_MILE = 1.609344;
+
 // 'capitals' mode: the capital of every state in COUNTRIES (countries.js),
 // not just the curated subset — so it covers every recognized nation.
 const CAPITAL_LOCATIONS = COUNTRIES.map((c) => ({
@@ -239,11 +246,22 @@ const CAPITAL_LOCATIONS = COUNTRIES.map((c) => ({
   name: `${c.capital}, ${c.name}`,
 }));
 
+function pickNearCapital() {
+  const cap = pickFromList(CAPITAL_LOCATIONS);
+  const p = randomPointInRing(
+    cap.lat,
+    cap.lng,
+    CAPITAL_MIN_MILES * KM_PER_MILE,
+    CAPITAL_MAX_MILES * KM_PER_MILE,
+  );
+  return { ...cap, lat: p.lat, lng: p.lng };
+}
+
 function pickRandomLocation() {
   switch (state.gameMode) {
     case 'capitals':
-      // Only world capitals.
-      return pickFromList(CAPITAL_LOCATIONS);
+      // Only world capitals — offset into the 5–15 mile ring.
+      return pickNearCapital();
     case 'landmarks':
       // Any curated famous city/landmark — recognizable spots only.
       return pickFromList(CURATED_LOCATIONS);

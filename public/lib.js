@@ -126,6 +126,23 @@ function samplePointInCountry(country, rng = Math.random) {
   return { lat, lng, name: `Somewhere in ${country.name}` };
 }
 
+// Random point in a ring (annulus) between minKm and maxKm from a center,
+// uniform by AREA — r = sqrt(u·(max²−min²)+min²) — so picks don't bunch
+// up at the inner edge. Flat-earth offset is fine at these distances
+// (<1% error under ~50 km). Used by Capitals mode to start rounds near,
+// but not exactly on, each capital.
+const KM_PER_DEG_LAT = 111.32;
+function randomPointInRing(lat, lng, minKm, maxKm, rng = Math.random) {
+  const r = Math.sqrt(rng() * (maxKm * maxKm - minKm * minKm) + minKm * minKm);
+  const theta = rng() * 2 * Math.PI;
+  const dLat = (r * Math.cos(theta)) / KM_PER_DEG_LAT;
+  const dLng = (r * Math.sin(theta)) / (KM_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
+  let outLng = lng + dLng;
+  if (outLng > 180) outLng -= 360;
+  if (outLng < -180) outLng += 360;
+  return { lat: lat + dLat, lng: outLng };
+}
+
 // Dual export: CommonJS for Node tests, window globals for the browser.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -137,5 +154,6 @@ if (typeof module !== 'undefined' && module.exports) {
     emptyStats,
     updateStats,
     samplePointInCountry,
+    randomPointInRing,
   };
 }

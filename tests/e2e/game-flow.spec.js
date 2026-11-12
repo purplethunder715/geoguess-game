@@ -201,6 +201,37 @@ test.describe('Game modes (mocked Mapillary)', () => {
     await expect(row).toBeHidden();
   });
 
+  test('Capitals mode starts searches 5–15 miles from a capital', async ({ page }) => {
+    await mockExternalsAndStubViewer(page);
+    const queried = [];
+    page.on('request', (req) => {
+      if (req.url().includes('graph.mapillary.com')) queried.push(bboxCenter(req.url()));
+    });
+    await page.goto('/');
+    await page.locator('#mode-select').selectOption('capitals');
+    await page.locator('#start-btn').click();
+    await expect.poll(() => queried.length).toBeGreaterThan(2);
+    const capitals = await page.evaluate(() => COUNTRIES.map((c) => [c.lat, c.lng]));
+    const km = (a, b) => {
+      const R = 6371;
+      const toRad = (d) => (d * Math.PI) / 180;
+      const dLat = toRad(b[0] - a[0]);
+      const dLng = toRad(b[1] - a[1]);
+      const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(h));
+    };
+    for (const p of queried) {
+      // Some capital must sit 5–15 mi (8.05–24.14 km) from this search center.
+      const ok = capitals.some((c) => {
+        const d = km(c, [p.lat, p.lng]);
+        return d >= 7.9 && d <= 24.3;
+      });
+      expect(ok, `search at ${p.lat},${p.lng} not in any capital's ring`).toBe(true);
+    }
+  });
+
   test('One-country mode only searches inside the chosen country', async ({ page }) => {
     await mockExternalsAndStubViewer(page);
     const queried = [];
