@@ -100,6 +100,32 @@ function updateStats(prev, game) {
   };
 }
 
+// Fraction of One-country picks that jitter around the capital instead of
+// sampling the whole bbox. Capitals almost always have street-level
+// coverage; uniform bbox samples give variety but miss often in big,
+// sparsely-covered countries.
+const COUNTRY_CAPITAL_BIAS = 0.5;
+// Max jitter (degrees, each axis) for capital-biased picks — ~25 km.
+const COUNTRY_CAPITAL_JITTER_DEG = 0.25;
+
+// Random point for "One country" mode. `country` is a COUNTRIES entry
+// (countries.js); `rng` is injectable so tests can make it deterministic.
+// Capital-biased picks are clamped to the bbox so tiny states (Vatican,
+// Monaco) never sample outside their own borders.
+function samplePointInCountry(country, rng = Math.random) {
+  let lat, lng;
+  if (rng() < COUNTRY_CAPITAL_BIAS) {
+    lat = country.lat + (rng() * 2 - 1) * COUNTRY_CAPITAL_JITTER_DEG;
+    lng = country.lng + (rng() * 2 - 1) * COUNTRY_CAPITAL_JITTER_DEG;
+    lat = Math.min(country.latMax, Math.max(country.latMin, lat));
+    lng = Math.min(country.lngMax, Math.max(country.lngMin, lng));
+  } else {
+    lat = country.latMin + rng() * (country.latMax - country.latMin);
+    lng = country.lngMin + rng() * (country.lngMax - country.lngMin);
+  }
+  return { lat, lng, name: `Somewhere in ${country.name}` };
+}
+
 // Dual export: CommonJS for Node tests, window globals for the browser.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -110,5 +136,6 @@ if (typeof module !== 'undefined' && module.exports) {
     applyCountryBonus,
     emptyStats,
     updateStats,
+    samplePointInCountry,
   };
 }

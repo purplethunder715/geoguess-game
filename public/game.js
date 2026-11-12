@@ -62,6 +62,11 @@ const PARALLEL_ATTEMPTS = 2;
 // but not absurd — once we hit ~20 batches in a row of pure HTTP errors,
 // we're either rate-limited or genuinely down and should stop hammering.
 const MAX_CONSECUTIVE_HTTP_BATCHES = 20;
+// One-country mode only: give up after this many consecutive all-miss
+// batches (3 lookups each). Some countries (e.g. North Korea) have no
+// street-level imagery at all, and the normal infinite retry would leave
+// the player on "Loading panorama..." forever.
+const MAX_COUNTRY_MISS_BATCHES = 30;
 
 // Keep this many extra prefetched rounds in the pool beyond what's strictly
 // needed. With Google's better coverage we don't need a deep buffer — 2 is
@@ -134,10 +139,15 @@ const state = {
   // (clamped to MIN..MAX). Drives prefetch sizing, round-end transitions,
   // and final-score display. Default until then is DEFAULT_ROUNDS_PER_GAME.
   roundsPerGame: DEFAULT_ROUNDS_PER_GAME,
-  // Selected location-pool mode: 'random' (default — region-random with a
-  // 15% curated sprinkle) or 'capitals' (only world capitals, from the
-  // CAPITAL_LOCATIONS subset). Set on Start click from #mode-select.
+  // Selected location-pool mode, set on Start click from #mode-select:
+  // 'random' | 'capitals' | 'landmarks' | 'country' | 'wild'. See
+  // pickRandomLocation().
   gameMode: 'random',
+  // COUNTRIES entry for 'country' mode (from #country-select), else null.
+  selectedCountry: null,
+  // Set when 'country' mode exhausts MAX_COUNTRY_MISS_BATCHES; stops pool
+  // top-ups so the "no imagery in this country" message can surface.
+  noCountryCoverage: false,
   currentLocation: null,
   actualPoint: null, // {lat, lng} of the panorama Mapillary actually returned
   guessLatLng: null,
@@ -221,9 +231,13 @@ function pickFromRegions() {
   };
 }
 
-// Pre-compute the capitals subset once so 'capitals' mode doesn't filter
-// the full curated list every pick.
-const CAPITAL_LOCATIONS = CURATED_LOCATIONS.filter((l) => l.isCapital);
+// 'capitals' mode: the capital of every state in COUNTRIES (countries.js),
+// not just the curated subset — so it covers every recognized nation.
+const CAPITAL_LOCATIONS = COUNTRIES.map((c) => ({
+  lat: c.lat,
+  lng: c.lng,
+  name: `${c.capital}, ${c.name}`,
+}));
 
 function pickRandomLocation() {
   switch (state.gameMode) {
@@ -233,6 +247,9 @@ function pickRandomLocation() {
     case 'landmarks':
       // Any curated famous city/landmark — recognizable spots only.
       return pickFromList(CURATED_LOCATIONS);
+    case 'country':
+      // Every round inside the one country picked on the start screen.
+      return samplePointInCountry(state.selectedCountry);
     case 'wild':
       // Pure region-random, no curated sprinkle — hardest variety.
       return pickFromRegions();
@@ -609,6 +626,7 @@ async function attemptOneLocation(mapillaryToken) {
       // photo's actually in, not the random region we queried from. The
       // countryCode is the match key for the country bonus on submit.
       const geocoded = await reverseGeocode(googleImage.lat, googleImage.lng, googleKey);
+      rejectIfOutsideSelectedCountry(geocoded);
       const labeled = geocoded
         ? { ...loc, name: geocoded.display, countryCode: geocoded.countryCode }
         : loc;
@@ -631,11 +649,26 @@ async function attemptOneLocation(mapillaryToken) {
       mapillaryImage.lng,
       googleKey,
     );
+    rejectIfOutsideSelectedCountry(geocoded);
     if (geocoded) {
       labeled = { ...loc, name: geocoded.display, countryCode: geocoded.countryCode };
     }
   }
   return { loc: labeled, image: mapillaryImage, source: 'mapillary' };
+}
+
+// One-country mode: bboxes overlap neighbours and Google returns the
+// nearest pano within 4 km, so a pick near a border can land abroad. When
+// the Geocoder told us the photo's country, treat a mismatch as a coverage
+// miss (thrown error without an HTTP prefix → prepareRound just retries).
+// Without a geocode (no Google key / Geocoding API off) we can't check, so
+// the bbox is the best we can do.
+function rejectIfOutsideSelectedCountry(geocoded) {
+  if (state.gameMode !== 'country' || !state.selectedCountry) return;
+  if (!geocoded || !geocoded.countryCode) return;
+  if (geocoded.countryCode !== state.selectedCountry.geoCode) {
+    throw new Error(`Panorama outside ${state.selectedCountry.name}`);
+  }
 }
 
 // Tells whether an error from attemptOneLocation looks like an HTTP/network
@@ -662,8 +695,10 @@ function isHttpFailure(err) {
 // a Mapillary rate-limit by spamming retries while they're already mad.
 async function prepareRound(token) {
   let httpErrorBatches = 0;
+  let missBatches = 0;
 
   while (state.gameRunning) {
+    if (state.noCountryCoverage) throw new Error('No coverage in selected country');
     try {
       const result = await Promise.any(
         Array.from({ length: PARALLEL_ATTEMPTS }, () => attemptOneLocation(token)),
@@ -692,6 +727,11 @@ async function prepareRound(token) {
       } else {
         // At least one attempt was just a coverage miss — server is fine.
         httpErrorBatches = 0;
+        missBatches++;
+        if (state.gameMode === 'country' && missBatches >= MAX_COUNTRY_MISS_BATCHES) {
+          state.noCountryCoverage = true;
+          throw new Error('No coverage in selected country', { cause: aggregate });
+        }
       }
     }
   }
@@ -749,7 +789,7 @@ function createRoundPool(onSettled = () => {}) {
 // resolution. Runs every prefetch through the same prepareRound (which
 // loops forever), so a coverage-miss here never surfaces to the user.
 function ensurePoolFull() {
-  if (!state.roundPool || !state.gameRunning) return;
+  if (!state.roundPool || !state.gameRunning || state.noCountryCoverage) return;
   const remaining = Math.max(0, state.roundsPerGame - state.round);
   const target = remaining + POOL_BUFFER;
   const sizes = state.roundPool.sizes();
@@ -790,6 +830,13 @@ async function showPrefetchedRound() {
     // a few minutes. Outright outages are rare.
     clearTimeout(overlayTimer);
     status.classList.remove('hidden');
+    if (state.noCountryCoverage) {
+      const name = state.selectedCountry ? state.selectedCountry.name : 'this country';
+      status.textContent =
+        `Couldn't find street-level imagery in ${name}. ` +
+        `Go back and pick another country.`;
+      return;
+    }
     status.textContent =
       `Mapillary stopped responding (likely rate-limited). ` +
       `Wait a few minutes and refresh, or generate a new token. (${err.message})`;
@@ -1192,6 +1239,7 @@ function resetGame() {
   state.roundPool = null;
   state.countryStreak = 0;
   state.bestStreak = 0;
+  state.noCountryCoverage = false;
   state.guestMode = false;
   document.getElementById('guest-placeholder').classList.add('hidden');
   // Restore the timer HUD slot in case guest mode hid it.
@@ -1202,6 +1250,44 @@ function resetGame() {
 
 const apiKeyInput = document.getElementById('api-key-input');
 const startBtn = document.getElementById('start-btn');
+
+// One-country mode: fill #country-select from COUNTRIES (alphabetical) and
+// only show its row while that mode is selected. Last pick is remembered so
+// repeat players don't scroll a ~200-entry list every game.
+const COUNTRY_STORAGE = 'geoguess.country';
+(function wireCountryPicker() {
+  const modeSelect = document.getElementById('mode-select');
+  const countryRow = document.getElementById('country-row');
+  const countrySelect = document.getElementById('country-select');
+  if (!modeSelect || !countryRow || !countrySelect) return;
+
+  const sorted = [...COUNTRIES].sort((a, b) => a.name.localeCompare(b.name));
+  for (const c of sorted) {
+    const opt = document.createElement('option');
+    opt.value = c.code;
+    opt.textContent = c.name;
+    countrySelect.appendChild(opt);
+  }
+  let saved = null;
+  try {
+    saved = localStorage.getItem(COUNTRY_STORAGE);
+  } catch (_) {
+    /* storage blocked — default selection is fine */
+  }
+  if (saved && COUNTRIES.some((c) => c.code === saved)) countrySelect.value = saved;
+  countrySelect.addEventListener('change', () => {
+    try {
+      localStorage.setItem(COUNTRY_STORAGE, countrySelect.value);
+    } catch (_) {
+      /* best-effort */
+    }
+  });
+
+  const sync = () =>
+    countryRow.classList.toggle('hidden', modeSelect.value !== 'country');
+  modeSelect.addEventListener('change', sync);
+  sync();
+})();
 
 // Always enabled — a missing token routes through guest mode rather than
 // blocking entry. Label tells the user what they'll get.
@@ -1262,13 +1348,18 @@ startBtn.addEventListener('click', () => {
   );
   // Read game-mode select. Falls through to 'random' on any unknown value.
   const modeSelect = document.getElementById('mode-select');
-  const VALID_MODES = ['random', 'capitals', 'landmarks', 'wild'];
-  const mode =
+  const VALID_MODES = ['random', 'capitals', 'landmarks', 'country', 'wild'];
+  let mode =
     modeSelect && VALID_MODES.includes(modeSelect.value) ? modeSelect.value : 'random';
+  const countrySelect = document.getElementById('country-select');
+  const selectedCountry =
+    COUNTRIES.find((c) => countrySelect && c.code === countrySelect.value) || null;
+  if (mode === 'country' && !selectedCountry) mode = 'random';
 
   resetGame();
   state.roundsPerGame = clamped;
   state.gameMode = mode;
+  state.selectedCountry = mode === 'country' ? selectedCountry : null;
   // Reflect in the HUD (Round X/<total>) and demo placeholder.
   const roundTotalEl = document.getElementById('round-total');
   if (roundTotalEl) roundTotalEl.textContent = clamped;

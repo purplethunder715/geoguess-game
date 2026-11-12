@@ -86,10 +86,15 @@ The game is a four-screen state machine in [public/game.js](public/game.js) (sta
 
 **Round count is user-configurable.** The start screen has a number input (`#rounds-input`, clamped to `MIN_ROUNDS_PER_GAME` 1 / `MAX_ROUNDS_PER_GAME` 20). `state.roundsPerGame` is set from it on Start click; the prefetch pool, round-transition logic, HUD total (`#round-total`), and final-score display all read from it. `ratingFor(score, max)` accepts an explicit max so the bucket thresholds (90/70/50/30%) scale with the configured round count.
 
-**Game-mode selector.** A `#mode-select` on the start screen toggles between two location pools, written to `state.gameMode` on Start click:
+**Game-mode selector.** A `#mode-select` on the start screen picks the location pool, written to `state.gameMode` on Start click (`pickRandomLocation` dispatches on it):
 
 - `random` (default): the existing 15% curated / 85% region-random mix. `CURATED_PROBABILITY` was 0.4 originally — Brady reported every round felt like a famous capital because the curated list leans heavy on capitals + the rural-label issue described above. Lowered to 0.15 in the same fix.
-- `capitals`: pulls only from `CAPITAL_LOCATIONS`, the precomputed subset of `CURATED_LOCATIONS` where `isCapital === true` (~35 entries — every UN-recognized capital we curate). Region-random is skipped entirely. Used for guessing only major capitals.
+- `capitals`: pulls only from `CAPITAL_LOCATIONS`, built from **every** entry in `COUNTRIES` ([public/countries.js](public/countries.js)) — the capital of all 205 recognized states. Region-random is skipped entirely. (Was the ~35 `isCapital` curated entries until 2026-11; the `isCapital` flag in locations.js is now unused by game.js.)
+- `landmarks` ("Famous / major cities"): only `CURATED_LOCATIONS`.
+- `country` ("One country"): every round inside the state chosen in `#country-select` (shown only in this mode, populated alphabetically from `COUNTRIES`, last pick remembered in `localStorage["geoguess.country"]`). Stored as `state.selectedCountry`. Points come from `samplePointInCountry` (lib.js): 50% jittered ±0.25° around the capital (clamped to the bbox), 50% uniform in the bbox. When the Geocoder reports the photo's country (`geocoded.countryCode`), `rejectIfOutsideSelectedCountry` throws a coverage miss if it ≠ the entry's `geoCode` — bboxes overlap neighbours. Countries with no imagery at all (e.g. North Korea): after `MAX_COUNTRY_MISS_BATCHES` (30) consecutive all-miss batches, `prepareRound` sets `state.noCountryCoverage`, `ensurePoolFull` stops topping up, the pool drains, and `showPrefetchedRound` tells the player to pick another country instead of spinning forever.
+- `wild`: pure region-random.
+
+**Country list scope.** `COUNTRIES` = every state recognized by at least one other sovereign state: 193 UN members + Vatican, Palestine, Taiwan, Kosovo, Western Sahara (SADR), Cook Islands, Niue, Somaliland, Abkhazia, South Ossetia, Northern Cyprus, Transnistria (205 total; a unit test pins the count — update it deliberately). Entities without an ISO code get made-up `X?` codes; `geoCode` is what Google's Geocoder returns for that land (e.g. Abkhazia → `GE`). Bboxes for Russia and Canada are clipped to the populated band so samples aren't all tundra.
 
 **Country-match bonus.** When `reverseGeocode` set `state.actualCountryCode` (i.e. Google key + Geocoding API both available), `submitGuess` reverse-geocodes the user's pin too and awards a +50 country bonus (`applyCountryBonus` in lib.js, capped so `distancePoints + bonus ≤ 5000`). Without a Google key — or if the Geocoder fails — the bonus silently doesn't apply. Country comparison uses ISO 3166-1 alpha-2 codes (`short_name` from the Geocoder), not long names, so "Czech Republic" vs "Czechia" drift doesn't break the match. Tests in `tests/test.js` cover the cap arithmetic.
 
@@ -191,10 +196,11 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `calculateScore(km)` — `5000 * exp(-km/2000)`, rounded, ≥0
 - `formatDistance(km)` — `"50 m"` under 1 km, else rounded km
 - `ratingFor(totalScore)` — final-game bucket text
+- `samplePointInCountry(country, rng)` — One-country point sampler (capital-biased half + bbox half; `rng` injectable for tests)
 - `applyCountryBonus(...)` — country-match bonus, capped at 5000/round
 - `updateStats(prev, game)` — pure reducer for the localStorage stats blob (`geoguess.stats`); returns `{ stats, isBestEver, isBestForLength }`. `recordGameStats` in game.js does the storage I/O
 
-**Every lib.js helper that game.js calls must also be listed in the `public/game.js` globals block of [eslint.config.mjs](eslint.config.mjs)** — otherwise `no-undef` fails lint (and CI). This slipped once with `updateStats`.
+**Every lib.js helper (and every data global like `COUNTRIES`) that game.js calls must also be listed in the `public/game.js` globals block of [eslint.config.mjs](eslint.config.mjs)** — otherwise `no-undef` fails lint (and CI). This slipped once with `updateStats`.
 
 ### Location dataset — [public/locations.js](public/locations.js)
 
@@ -203,15 +209,19 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `LOCATIONS = CURATED_LOCATIONS` — backwards-compat alias still consumed by [tests/test.js](tests/test.js) via the `new Function` shim
 - **Excluded from Prettier** ([.prettierignore](.prettierignore)) — the aligned columns are intentional and trailing-zero stripping (`40.7580` → `40.758`) is unwanted
 
+### Country dataset — [public/countries.js](public/countries.js)
+
+- `COUNTRIES` — `{ code, geoCode, name, capital, lat, lng, latMin, latMax, lngMin, lngMax }` for all 205 recognized states. Feeds `capitals` and `country` modes. Excluded from Prettier (aligned columns), `no-unused-vars` off in eslint like locations.js
+
 ### Markup — [public/index.html](public/index.html)
 
 - Four screens: `#start-screen`, `#game-screen`, `#result-screen`, `#end-screen`
 - HUD: `#hud`, `#round-num`, `#score`, `#timer-hud`, `#timer`
-- Start screen: `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`, `#google-key-input`
+- Start screen: `#mode-select`, `#country-row` / `#country-select` (One-country picker, hidden unless mode is `country`), `#timer-toggle`, `#start-btn`, `#settings-toggle`, `#settings-panel`, `#api-key-section`, `#api-key-input`, `#google-key-input`
 - Mini-map panel: `#map-panel`, `#guess-map`, `#guess-btn`
 - Status overlay: `#streetview-status`
 - Demo-mode placeholder: `#guest-placeholder`, `#demo-round-num`, `#demo-hint`, `#guest-token-input`, `#guest-save-btn`, `#back-to-start-btn` — overlays the panorama area when entering without a token; shows demo round indicator + textual hint (substitutes for the panorama) + in-place token entry so the user can upgrade without bouncing back to the start screen
-- **Script load order** at bottom: `leaflet → mapillary → config → lib → locations → game` — do not reorder
+- **Script load order** at bottom: `leaflet → mapillary → config → lib → locations → countries → game` — do not reorder
 
 ### Styles — [public/style.css](public/style.css)
 
@@ -234,6 +244,8 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `group('formatDistance', ...)` — sub-km, ≥1 km, null/undefined
 - `group('ratingFor', ...)` — bucket boundary cases
 - `group('LOCATIONS dataset', ...)` — shape, lat/lng ranges, no duplicate coords
+- `group('COUNTRIES dataset', ...)` — exactly 205 entries, unique codes/names, valid bboxes with the capital inside
+- `group('samplePointInCountry', ...)` — capital bias, bbox sampling, clamping for micro-states, every country's samples stay in-bbox
 - `group('REGIONS dataset', ...)` — shape, valid bbox ranges, latMin < latMax / lngMin < lngMax (inverted bboxes would generate points outside the named region)
 
 ### E2E tests — [tests/e2e/](tests/e2e/)
@@ -241,7 +253,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 Playwright + Chromium. Server is auto-started via `webServer` config; pre-existing servers are reused.
 
 - [tests/e2e/smoke.spec.js](tests/e2e/smoke.spec.js) — start-screen UX (Settings panel, token persistence) + the full guest/demo flow: round-1 single submit, full 5-round playthrough → end screen → restart, demo+timer combination, save-token upgrade button states
-- [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) — token-mode flows with mocked Mapillary: Start → drop pin → Submit → result, timer-toggle HUD, guest-saves-token-mid-demo upgrade
+- [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) — token-mode flows with mocked Mapillary: Start → drop pin → Submit → result, timer-toggle HUD, guest-saves-token-mid-demo upgrade; game modes: country picker visibility + 205 options, One-country mode only queries bboxes inside the chosen country
 - [playwright.config.mjs](playwright.config.mjs) — chromium-only, headless, `reuseExistingServer: true`
 
 ### Server — [server.js](server.js)
@@ -252,7 +264,7 @@ Playwright + Chromium. Server is auto-started via `webServer` config; pre-existi
 
 - [eslint.config.mjs](eslint.config.mjs) — flat config, browser globals for `public/`, node globals for `server.js`/`tests/`. Per-file globals match the script-load layout (`game.js` consumes globals defined by `lib.js` / `locations.js` / `config.js`).
 - [.prettierrc.json](.prettierrc.json) — single quotes, semis, 2-space, trailing commas, 90-char width
-- [.prettierignore](.prettierignore) — excludes `node_modules/`, `package-lock.json`, `public/locations.js` (alignment is intentional)
+- [.prettierignore](.prettierignore) — excludes `node_modules/`, `package-lock.json`, `public/locations.js`, `public/countries.js` (alignment is intentional)
 - [playwright.config.mjs](playwright.config.mjs) — chromium-only e2e runner; auto-starts/reuses `npm start` on port 3000
 
 ## Mocking external APIs in e2e
@@ -347,7 +359,7 @@ When working on `config.js`:
 
 ## Common pitfalls
 
-- **Script load order** in [public/index.html](public/index.html) is meaningful: `leaflet → mapillary → config → lib → locations → game`. Globals from earlier files are available in later ones; don't reorder casually.
+- **Script load order** in [public/index.html](public/index.html) is meaningful: `leaflet → mapillary → config → lib → locations → countries → game`. Globals from earlier files are available in later ones; don't reorder casually.
 - **Mapillary `moveTo()` rejections** are now caught and trigger a viewer rebuild in `showImageInViewer`. If a round still looks frozen, check the console for repeated rebuild warnings — that suggests a deeper problem (e.g. stale image IDs from a long-pending prefetch).
 - **Mapillary coverage is patchier than Google Street View.** `prepareRound`'s infinite parallel-attempts loop exists because rural / region-random picks often come back empty — coverage misses don't surface as errors, just as another retry batch. Tight rural curated entries amplify this; prefer urban centers.
 - **Esri tile order matters.** Labels overlay must be added _after_ imagery in `buildSatelliteLayers` or labels disappear behind imagery. If satellite goes blank, Esri may have rate-limited briefly.
@@ -355,10 +367,12 @@ When working on `config.js`:
 - **Bbox API rejects too-large queries.** `SEARCH_DELTA_DEG` is 0.04° as a balance: wide enough to find coverage in most cities, tight enough that Mapillary doesn't return "reduce the amount of data" in dense downtowns. If you increase it, expect the error in places like central Tokyo or Manhattan.
 - **Slow Mapillary responses** would otherwise hang the prefetch — the `FETCH_TIMEOUT_MS` (5 s) abort + parallel-attempts loop ensure one slow city doesn't block the game. Sustained slow responses still trip `MAX_CONSECUTIVE_HTTP_BATCHES` (20) via `AbortError` (which `isHttpFailure` counts), surfacing the rate-limit message; that's the intended behavior.
 
+- **Cloud/sandboxed sessions can't fully run e2e.** If `unpkg.com` is blocked, Leaflet never loads (`L is not defined`) and the 4 specs that click the guess map fail on `#guess-btn` staying disabled — environmental, not a regression; CI is the source of truth. If the preinstalled Chromium doesn't match the pinned `@playwright/test`, point a throwaway config at it via `use.launchOptions.executablePath` rather than running `playwright install`.
+
 ## What this project is _not_
 
 - No backend persistence, auth, or leaderboard.
 - No multiplayer.
-- No country-only or difficulty modes.
+- No difficulty modes. (A One-country mode now exists — see the game-mode selector paragraph.)
 
 Listed as stretch goals in the original spec; intentionally not implemented.

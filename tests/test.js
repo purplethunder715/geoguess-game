@@ -12,6 +12,7 @@ const {
   applyCountryBonus,
   emptyStats,
   updateStats,
+  samplePointInCountry,
 } = require(path.join('..', 'public', 'lib.js'));
 
 // Load locations.js by reading + evaluating it. It defines `const LOCATIONS`,
@@ -28,6 +29,10 @@ let LOCATIONS, REGIONS;
   LOCATIONS = exported.LOCATIONS;
   REGIONS = exported.REGIONS;
 }
+const COUNTRIES = new Function(
+  fs.readFileSync(path.join(__dirname, '..', 'public', 'countries.js'), 'utf8') +
+    '\nreturn COUNTRIES;',
+)();
 
 let passed = 0,
   failed = 0;
@@ -321,6 +326,72 @@ group('REGIONS dataset', () => {
 });
 
 // ---------------- summary --------------------------------------------------
+
+// ---------------- COUNTRIES dataset -----------------------------------------
+group('COUNTRIES dataset', () => {
+  test('covers every recognized state (193 UN + 12 others)', () => {
+    assert.strictEqual(COUNTRIES.length, 205);
+  });
+
+  test('codes and names are unique', () => {
+    assert.strictEqual(new Set(COUNTRIES.map((c) => c.code)).size, COUNTRIES.length);
+    assert.strictEqual(new Set(COUNTRIES.map((c) => c.name)).size, COUNTRIES.length);
+  });
+
+  test('every entry has valid fields, a sane bbox, and its capital inside it', () => {
+    for (const c of COUNTRIES) {
+      assert.ok(/^[A-Z]{2}$/.test(c.code), `bad code: ${c.name}`);
+      assert.ok(/^[A-Z]{2}$/.test(c.geoCode), `bad geoCode: ${c.name}`);
+      assert.ok(c.name && c.capital, `missing name/capital: ${c.code}`);
+      assert.ok(c.latMin < c.latMax, `inverted lat bbox: ${c.name}`);
+      assert.ok(c.lngMin < c.lngMax, `inverted lng bbox: ${c.name}`);
+      assert.ok(c.latMin >= -90 && c.latMax <= 90, `lat out of range: ${c.name}`);
+      assert.ok(c.lngMin >= -180 && c.lngMax <= 180, `lng out of range: ${c.name}`);
+      assert.ok(
+        c.lat >= c.latMin && c.lat <= c.latMax && c.lng >= c.lngMin && c.lng <= c.lngMax,
+        `capital outside bbox: ${c.name}`,
+      );
+    }
+  });
+});
+
+// ---------------- samplePointInCountry --------------------------------------
+group('samplePointInCountry', () => {
+  // Deterministic rng that replays a fixed sequence.
+  const seq = (...vals) => {
+    let i = 0;
+    return () => vals[i++ % vals.length];
+  };
+  const japan = COUNTRIES.find((c) => c.code === 'JP');
+  const vatican = COUNTRIES.find((c) => c.code === 'VA');
+
+  test('capital-biased pick lands near the capital', () => {
+    const p = samplePointInCountry(japan, seq(0.1, 0.5, 0.5));
+    assert.ok(Math.abs(p.lat - japan.lat) < 1e-9 && Math.abs(p.lng - japan.lng) < 1e-9);
+    assert.strictEqual(p.name, 'Somewhere in Japan');
+  });
+
+  test('bbox pick is uniform inside the bbox', () => {
+    const p = samplePointInCountry(japan, seq(0.9, 0, 1));
+    assert.strictEqual(p.lat, japan.latMin);
+    assert.strictEqual(p.lng, japan.lngMax);
+  });
+
+  test('capital jitter is clamped to tiny bboxes', () => {
+    const p = samplePointInCountry(vatican, seq(0.1, 1, 0));
+    assert.ok(p.lat <= vatican.latMax && p.lng >= vatican.lngMin);
+  });
+
+  test('random picks all stay in the bbox for every country', () => {
+    for (const c of COUNTRIES) {
+      for (let i = 0; i < 20; i++) {
+        const p = samplePointInCountry(c);
+        assert.ok(p.lat >= c.latMin && p.lat <= c.latMax, `${c.name} lat`);
+        assert.ok(p.lng >= c.lngMin && p.lng <= c.lngMax, `${c.name} lng`);
+      }
+    }
+  });
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

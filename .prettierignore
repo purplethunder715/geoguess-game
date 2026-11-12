@@ -4,3 +4,4 @@ package-lock.json
 # Curated dataset; the aligned columns are intentional and trailing-zero
 # stripping (40.7580 -> 40.758) is unwanted.
 public/locations.js
+public/countries.js

@@ -176,3 +176,52 @@ test.describe('Game flow (mocked Mapillary)', () => {
     expect(stored).toBe('MLY|guest-paste-token');
   });
 });
+
+test.describe('Game modes (mocked Mapillary)', () => {
+  // Decode a Graph API request's bbox into its center point.
+  const bboxCenter = (url) => {
+    const [minLng, minLat, maxLng, maxLat] = new URL(url).searchParams
+      .get('bbox')
+      .split(',')
+      .map(Number);
+    return { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 };
+  };
+
+  test('country picker only shows in One-country mode, listing every nation', async ({
+    page,
+  }) => {
+    await mockExternalsAndStubViewer(page);
+    await page.goto('/');
+    const row = page.locator('#country-row');
+    await expect(row).toBeHidden();
+    await page.locator('#mode-select').selectOption('country');
+    await expect(row).toBeVisible();
+    await expect(page.locator('#country-select option')).toHaveCount(205);
+    await page.locator('#mode-select').selectOption('capitals');
+    await expect(row).toBeHidden();
+  });
+
+  test('One-country mode only searches inside the chosen country', async ({ page }) => {
+    await mockExternalsAndStubViewer(page);
+    const queried = [];
+    page.on('request', (req) => {
+      if (req.url().includes('graph.mapillary.com')) queried.push(bboxCenter(req.url()));
+    });
+    await page.goto('/');
+    await page.locator('#mode-select').selectOption('country');
+    await page.locator('#country-select').selectOption('JP');
+    await page.locator('#start-btn').click();
+    await expect.poll(() => queried.length).toBeGreaterThan(0);
+    // Japan bbox from countries.js (plus slack for float rounding).
+    for (const p of queried) {
+      expect(p.lat).toBeGreaterThanOrEqual(30.99);
+      expect(p.lat).toBeLessThanOrEqual(45.51);
+      expect(p.lng).toBeGreaterThanOrEqual(129.49);
+      expect(p.lng).toBeLessThanOrEqual(145.81);
+    }
+    // Choice is remembered for next time.
+    expect(await page.evaluate(() => localStorage.getItem('geoguess.country'))).toBe(
+      'JP',
+    );
+  });
+});

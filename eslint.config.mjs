@@ -86,13 +86,15 @@ export default [
         ratingFor: 'readonly',
         applyCountryBonus: 'readonly',
         updateStats: 'readonly',
+        samplePointInCountry: 'readonly',
+        COUNTRIES: 'readonly',
       },
     },
   },
   {
     // locations.js declares `const LOCATIONS` for cross-file consumption.
     // ESLint can't see that usage in script-mode, so silence the warning here.
-    files: ['public/locations.js'],
+    files: ['public/locations.js', 'public/countries.js'],
     rules: { 'no-unused-vars': 'off' },
   },
   {
