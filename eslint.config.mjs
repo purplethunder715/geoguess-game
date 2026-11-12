@@ -88,6 +88,7 @@ export default [
         updateStats: 'readonly',
         samplePointInCountry: 'readonly',
         randomPointInRing: 'readonly',
+        cityRadiusKm: 'readonly',
         COUNTRIES: 'readonly',
       },
     },

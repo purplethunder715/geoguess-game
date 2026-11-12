@@ -14,6 +14,7 @@ const {
   updateStats,
   samplePointInCountry,
   randomPointInRing,
+  cityRadiusKm,
 } = require(path.join('..', 'public', 'lib.js'));
 
 // Load locations.js by reading + evaluating it. It defines `const LOCATIONS`,
@@ -380,9 +381,40 @@ group('randomPointInRing', () => {
     assert.ok(Math.abs(haversineDistance(0, 0, outer.lat, outer.lng) - 24) < 0.1);
   });
 
+  test('minKm 0 fills the whole disc (capitals: anywhere in the city)', () => {
+    let nearCenter = 0;
+    for (let i = 0; i < 2000; i++) {
+      const p = randomPointInRing(48.8566, 2.3522, 0, 6);
+      const d = haversineDistance(48.8566, 2.3522, p.lat, p.lng);
+      assert.ok(d <= 6 * 1.01, `distance ${d} km`);
+      if (d < 3) nearCenter++;
+    }
+    // Area-uniform: inner half-radius is 1/4 of the area → ~500 of 2000.
+    assert.ok(nearCenter > 380 && nearCenter < 620, `inner count ${nearCenter}`);
+  });
+
   test('wraps longitude across the antimeridian', () => {
     const p = randomPointInRing(-18.14, 179.99, 20, 20, () => 0.25); // due east
     assert.ok(p.lng >= -180 && p.lng < -179, `lng ${p.lng}`);
+  });
+});
+
+// ---------------- cityRadiusKm ----------------------------------------------
+group('cityRadiusKm', () => {
+  test('uses the entry cityKm when set', () => {
+    assert.strictEqual(cityRadiusKm({ cityKm: 22 }), 22);
+    assert.strictEqual(cityRadiusKm({ cityKm: 0.4 }), 0.4);
+  });
+  test('falls back to 5 km when missing/invalid', () => {
+    assert.strictEqual(cityRadiusKm({}), 5);
+    assert.strictEqual(cityRadiusKm({ cityKm: 0 }), 5);
+    assert.strictEqual(cityRadiusKm(null), 5);
+  });
+  test('every COUNTRIES cityKm is a plausible city radius', () => {
+    for (const c of COUNTRIES) {
+      if (c.cityKm === undefined) continue;
+      assert.ok(c.cityKm > 0 && c.cityKm <= 30, `${c.name}: ${c.cityKm}`);
+    }
   });
 });
 

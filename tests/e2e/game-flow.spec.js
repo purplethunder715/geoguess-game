@@ -201,7 +201,9 @@ test.describe('Game modes (mocked Mapillary)', () => {
     await expect(row).toBeHidden();
   });
 
-  test('Capitals mode starts searches 5–15 miles from a capital', async ({ page }) => {
+  test('Capitals mode starts searches anywhere inside a capital city', async ({
+    page,
+  }) => {
     await mockExternalsAndStubViewer(page);
     const queried = [];
     page.on('request', (req) => {
@@ -211,7 +213,9 @@ test.describe('Game modes (mocked Mapillary)', () => {
     await page.locator('#mode-select').selectOption('capitals');
     await page.locator('#start-btn').click();
     await expect.poll(() => queried.length).toBeGreaterThan(2);
-    const capitals = await page.evaluate(() => COUNTRIES.map((c) => [c.lat, c.lng]));
+    const cities = await page.evaluate(() =>
+      COUNTRIES.map((c) => [c.lat, c.lng, cityRadiusKm(c)]),
+    );
     const km = (a, b) => {
       const R = 6371;
       const toRad = (d) => (d * Math.PI) / 180;
@@ -223,12 +227,9 @@ test.describe('Game modes (mocked Mapillary)', () => {
       return 2 * R * Math.asin(Math.sqrt(h));
     };
     for (const p of queried) {
-      // Some capital must sit 5–15 mi (8.05–24.14 km) from this search center.
-      const ok = capitals.some((c) => {
-        const d = km(c, [p.lat, p.lng]);
-        return d >= 7.9 && d <= 24.3;
-      });
-      expect(ok, `search at ${p.lat},${p.lng} not in any capital's ring`).toBe(true);
+      // Every search must start inside some capital's city radius.
+      const ok = cities.some((c) => km(c, [p.lat, p.lng]) <= c[2] * 1.01);
+      expect(ok, `search at ${p.lat},${p.lng} not inside any capital`).toBe(true);
     }
   });
 

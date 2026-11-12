@@ -231,36 +231,46 @@ function pickFromRegions() {
   };
 }
 
-// Capitals mode starts each round somewhere in a 5–15 mile ring around the
-// capital's center (Brady's call, 2026-11): close enough that it's clearly
-// that city's area, far enough that it isn't always the same downtown block.
-const CAPITAL_MIN_MILES = 5;
-const CAPITAL_MAX_MILES = 15;
-const KM_PER_MILE = 1.609344;
+// Slack (km) past a capital's cityKm before a found panorama counts as
+// "outside the city". cityKm values are rough, and micro-capitals
+// (Valletta, Vatican) would otherwise almost never accept a pano.
+const CITY_EDGE_TOLERANCE_KM = 1;
 
 // 'capitals' mode: the capital of every state in COUNTRIES (countries.js),
 // not just the curated subset — so it covers every recognized nation.
+// `city` (center + radius) rides along so attemptOneLocation can reject
+// panoramas that the 4 km provider search found outside the city.
 const CAPITAL_LOCATIONS = COUNTRIES.map((c) => ({
   lat: c.lat,
   lng: c.lng,
   name: `${c.capital}, ${c.name}`,
+  city: { lat: c.lat, lng: c.lng, km: cityRadiusKm(c) },
 }));
 
+// Capitals mode can start anywhere inside the capital city (Brady, 2026-11:
+// "as long as it's in the city"), not just downtown: a uniform-by-area
+// random point within the city's radius.
 function pickNearCapital() {
   const cap = pickFromList(CAPITAL_LOCATIONS);
-  const p = randomPointInRing(
-    cap.lat,
-    cap.lng,
-    CAPITAL_MIN_MILES * KM_PER_MILE,
-    CAPITAL_MAX_MILES * KM_PER_MILE,
-  );
+  const p = randomPointInRing(cap.lat, cap.lng, 0, cap.city.km);
   return { ...cap, lat: p.lat, lng: p.lng };
+}
+
+// Capitals mode: Google's 4 km radius / Mapillary's ~4 km bbox can return a
+// pano past the city edge (badly so for small capitals). Throwing here
+// makes it a plain coverage miss, so prepareRound just tries again.
+function rejectIfOutsideCity(loc, image) {
+  if (!loc.city) return;
+  const d = haversineDistance(loc.city.lat, loc.city.lng, image.lat, image.lng);
+  if (d > loc.city.km + CITY_EDGE_TOLERANCE_KM) {
+    throw new Error(`Panorama outside ${loc.name}`);
+  }
 }
 
 function pickRandomLocation() {
   switch (state.gameMode) {
     case 'capitals':
-      // Only world capitals — offset into the 5–15 mile ring.
+      // Only world capitals — anywhere inside the city.
       return pickNearCapital();
     case 'landmarks':
       // Any curated famous city/landmark — recognizable spots only.
@@ -639,6 +649,7 @@ async function attemptOneLocation(mapillaryToken) {
   if (googleKey) {
     const googleImage = await findGoogleStreetView(loc.lat, loc.lng, googleKey);
     if (googleImage) {
+      rejectIfOutsideCity(loc, googleImage);
       // Reverse-geocode the actual panorama coords (which may differ from
       // the requested point) so the result screen shows the city the
       // photo's actually in, not the random region we queried from. The
@@ -658,6 +669,7 @@ async function attemptOneLocation(mapillaryToken) {
 
   const mapillaryImage = await findMapillaryImage(loc.lat, loc.lng, mapillaryToken);
   if (!mapillaryImage) throw new Error(`No imagery near ${loc.name}`);
+  rejectIfOutsideCity(loc, mapillaryImage);
   // If a Google key is available, also geocode the Mapillary result so the
   // country bonus + nicer label still work on the fallback path.
   let labeled = loc;

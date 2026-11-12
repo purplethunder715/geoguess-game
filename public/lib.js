@@ -143,6 +143,13 @@ function randomPointInRing(lat, lng, minKm, maxKm, rng = Math.random) {
   return { lat: lat + dLat, lng: outLng };
 }
 
+// Capitals mode: radius (km) to treat as "inside the city" when a
+// COUNTRIES entry has no explicit cityKm.
+const DEFAULT_CITY_KM = 5;
+function cityRadiusKm(country) {
+  return country && country.cityKm > 0 ? country.cityKm : DEFAULT_CITY_KM;
+}
+
 // Dual export: CommonJS for Node tests, window globals for the browser.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -155,5 +162,6 @@ if (typeof module !== 'undefined' && module.exports) {
     updateStats,
     samplePointInCountry,
     randomPointInRing,
+    cityRadiusKm,
   };
 }

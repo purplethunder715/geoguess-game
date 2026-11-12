@@ -89,7 +89,7 @@ The game is a four-screen state machine in [public/game.js](public/game.js) (sta
 **Game-mode selector.** A `#mode-select` on the start screen picks the location pool, written to `state.gameMode` on Start click (`pickRandomLocation` dispatches on it):
 
 - `random` (default): the existing 15% curated / 85% region-random mix. `CURATED_PROBABILITY` was 0.4 originally — Brady reported every round felt like a famous capital because the curated list leans heavy on capitals + the rural-label issue described above. Lowered to 0.15 in the same fix.
-- `capitals`: pulls only from `CAPITAL_LOCATIONS`, built from **every** entry in `COUNTRIES` ([public/countries.js](public/countries.js)) — the capital of all 205 recognized states. Region-random is skipped entirely. `pickNearCapital` offsets each pick to a random point in a `CAPITAL_MIN_MILES`–`CAPITAL_MAX_MILES` (5–15 mi) ring around the capital via `randomPointInRing` (lib.js, area-uniform), so rounds aren't always the same downtown block; tiny capitals (Vatican, Valletta) will often land in the neighbouring country/sea, which the retry loop absorbs. (Was the ~35 `isCapital` curated entries until 2026-11; the `isCapital` flag in locations.js is now unused by game.js.)
+- `capitals`: pulls only from `CAPITAL_LOCATIONS`, built from **every** entry in `COUNTRIES` ([public/countries.js](public/countries.js)) — the capital of all 205 recognized states. Region-random is skipped entirely. Rounds can start **anywhere inside the capital city** (Brady's call, 2026-11 — briefly a 5–15 mi ring, replaced because it excluded downtowns and overshot small cities): `pickNearCapital` picks an area-uniform point within the city's radius (`randomPointInRing(lat, lng, 0, cityKm)`), where radius = `cityRadiusKm(country)` (lib.js) — the entry's optional `cityKm` in countries.js (rough √(area/π) of the city proper), else `DEFAULT_CITY_KM` (5). Because the provider search reaches ~4 km past the start point, `rejectIfOutsideCity` throws a coverage miss when the found pano is more than `cityKm + CITY_EDGE_TOLERANCE_KM` (1 km) from the capital center. (Was the ~35 `isCapital` curated entries until 2026-11; the `isCapital` flag in locations.js is now unused by game.js.)
 - `landmarks` ("Famous / major cities"): only `CURATED_LOCATIONS`.
 - `country` ("One country"): every round inside the state chosen in `#country-select` (shown only in this mode, populated alphabetically from `COUNTRIES`, last pick remembered in `localStorage["geoguess.country"]`). Stored as `state.selectedCountry`. Points come from `samplePointInCountry` (lib.js): 50% jittered ±0.25° around the capital (clamped to the bbox), 50% uniform in the bbox. When the Geocoder reports the photo's country (`geocoded.countryCode`), `rejectIfOutsideSelectedCountry` throws a coverage miss if it ≠ the entry's `geoCode` — bboxes overlap neighbours. Countries with no imagery at all (e.g. North Korea): after `MAX_COUNTRY_MISS_BATCHES` (30) consecutive all-miss batches, `prepareRound` sets `state.noCountryCoverage`, `ensurePoolFull` stops topping up, the pool drains, and `showPrefetchedRound` tells the player to pick another country instead of spinning forever.
 - `wild`: pure region-random.
@@ -196,7 +196,8 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `calculateScore(km)` — `5000 * exp(-km/2000)`, rounded, ≥0
 - `formatDistance(km)` — `"50 m"` under 1 km, else rounded km
 - `ratingFor(totalScore)` — final-game bucket text
-- `randomPointInRing(lat, lng, minKm, maxKm, rng)` — area-uniform random point in an annulus; flat-earth offset, wraps longitude at ±180
+- `randomPointInRing(lat, lng, minKm, maxKm, rng)` — area-uniform random point in an annulus (minKm 0 = full disc); flat-earth offset, wraps longitude at ±180
+- `cityRadiusKm(country)` / `DEFAULT_CITY_KM` (5) — capital-city radius for Capitals mode
 - `samplePointInCountry(country, rng)` — One-country point sampler (capital-biased half + bbox half; `rng` injectable for tests)
 - `applyCountryBonus(...)` — country-match bonus, capped at 5000/round
 - `updateStats(prev, game)` — pure reducer for the localStorage stats blob (`geoguess.stats`); returns `{ stats, isBestEver, isBestForLength }`. `recordGameStats` in game.js does the storage I/O
@@ -212,7 +213,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 
 ### Country dataset — [public/countries.js](public/countries.js)
 
-- `COUNTRIES` — `{ code, geoCode, name, capital, lat, lng, latMin, latMax, lngMin, lngMax }` for all 205 recognized states. Feeds `capitals` and `country` modes. Excluded from Prettier (aligned columns), `no-unused-vars` off in eslint like locations.js
+- `COUNTRIES` — `{ code, geoCode, name, capital, lat, lng, latMin, latMax, lngMin, lngMax, cityKm? }` (`cityKm` set on 115 big/small capitals; others use the default) for all 205 recognized states. Feeds `capitals` and `country` modes. Excluded from Prettier (aligned columns), `no-unused-vars` off in eslint like locations.js
 
 ### Markup — [public/index.html](public/index.html)
 
@@ -246,7 +247,8 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 - `group('ratingFor', ...)` — bucket boundary cases
 - `group('LOCATIONS dataset', ...)` — shape, lat/lng ranges, no duplicate coords
 - `group('COUNTRIES dataset', ...)` — exactly 205 entries, unique codes/names, valid bboxes with the capital inside
-- `group('randomPointInRing', ...)` — 5–15 mi distances verified with haversine at several latitudes, edge cases, antimeridian wrap
+- `group('randomPointInRing', ...)` — ring distances verified with haversine at several latitudes, full-disc area-uniformity, edge cases, antimeridian wrap
+- `group('cityRadiusKm', ...)` — explicit vs. default radius, every `cityKm` in 0–30 km
 - `group('samplePointInCountry', ...)` — capital bias, bbox sampling, clamping for micro-states, every country's samples stay in-bbox
 - `group('REGIONS dataset', ...)` — shape, valid bbox ranges, latMin < latMax / lngMin < lngMax (inverted bboxes would generate points outside the named region)
 
@@ -255,7 +257,7 @@ Reused by both the browser and Node tests via the dual-export shim at the bottom
 Playwright + Chromium. Server is auto-started via `webServer` config; pre-existing servers are reused.
 
 - [tests/e2e/smoke.spec.js](tests/e2e/smoke.spec.js) — start-screen UX (Settings panel, token persistence) + the full guest/demo flow: round-1 single submit, full 5-round playthrough → end screen → restart, demo+timer combination, save-token upgrade button states
-- [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) — token-mode flows with mocked Mapillary: Start → drop pin → Submit → result, timer-toggle HUD, guest-saves-token-mid-demo upgrade; game modes: country picker visibility + 205 options, One-country mode only queries bboxes inside the chosen country
+- [tests/e2e/game-flow.spec.js](tests/e2e/game-flow.spec.js) — token-mode flows with mocked Mapillary: Start → drop pin → Submit → result, timer-toggle HUD, guest-saves-token-mid-demo upgrade; game modes: country picker visibility + 205 options, Capitals mode searches start inside some capital's city radius, One-country mode only queries bboxes inside the chosen country
 - [playwright.config.mjs](playwright.config.mjs) — chromium-only, headless, `reuseExistingServer: true`
 
 ### Server — [server.js](server.js)
